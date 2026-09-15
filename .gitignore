@@ -1,0 +1,5 @@
+# PlatformIO build artifacts
+.pio/
+
+# Firmware credentials
+firmware_esp32/src/config.h

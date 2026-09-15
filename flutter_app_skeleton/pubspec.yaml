@@ -1,0 +1,36 @@
+name: scada_mizan_app
+description: "Aplikasi monitoring & kontrol SCADA Distribusi Listrik — Tugas Akhir Almar'u Zaim Mizan (04231006)"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # --- MQTT (HiveMQ Cloud) ---
+  mqtt_client: ^10.3.1        # [DRAF] verifikasi versi terbaru di pub.dev sebelum implementasi akhir
+
+  # --- Firebase ---
+  firebase_core: ^2.27.0      # [DRAF] verifikasi kompatibilitas versi antar-paket firebase_* sebelum implementasi akhir
+  firebase_auth: ^4.17.0
+  firebase_database: ^10.4.0
+
+  # --- State management sederhana (opsional, boleh diganti Provider/Riverpod/Bloc
+  #     sesuai preferensi — proyek ini memakai ChangeNotifier bawaan Flutter agar
+  #     minim dependency tambahan untuk skala prototipe TA) ---
+  provider: ^6.1.1
+
+  # --- Utilitas ---
+  intl: ^0.19.0                # format tanggal/waktu untuk layar Data Activity
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

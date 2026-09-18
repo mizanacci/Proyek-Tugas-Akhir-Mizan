@@ -15,7 +15,7 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 import '../models/sensor_data.dart';
 
 // Samakan dengan config.h firmware & dokumen 04_Konfigurasi_HiveMQ.md
-const String _mqttHost = 'ISI_HOSTNAME.s1.eu.hivemq.cloud';
+const String _mqttHost = '57b78f1434be4eee81c34de53a922e06.s1.eu.hivemq.cloud';
 const int _mqttPort = 8883;
 const String _topicDataSensor = 'scada/mizan/data/sensor';
 const String _topicStatusLruf = 'scada/mizan/status/lrufail';

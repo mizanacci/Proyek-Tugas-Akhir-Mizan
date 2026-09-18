@@ -9,10 +9,12 @@ import 'package:provider/provider.dart';
 import 'dart:async';
 import '../services/mqtt_service.dart';
 import '../services/firebase_service.dart';
+import '../models/sensor_data.dart';
 
 class MonitoringScreen extends StatefulWidget {
   final bool bisaKontrol; // diteruskan oleh layar pemanggil; lihat catatan file
-  const MonitoringScreen({super.key, required this.bisaKontrol});
+  final UserRole role; // menentukan kredensial MQTT mana yang dipakai
+  const MonitoringScreen({super.key, required this.bisaKontrol, required this.role});
 
   @override
   State<MonitoringScreen> createState() => _MonitoringScreenState();
@@ -29,16 +31,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     final mqtt = context.read<MqttService>();
     if (!mqtt.terhubung) {
       final firebaseUser = context.read<FirebaseService>().userSaatIni;
-      // [DRAF] clientId sebaiknya menyertakan uid agar unik per sesi login;
-      // kredensial MQTT (username/password broker, BEDA dari kredensial
-      // Firebase) diisi sesuai akun yang dibuat di 04_Konfigurasi_HiveMQ.md
-      // Bagian 2 — pertimbangkan menyimpan mapping uid Firebase -> kredensial
-      // MQTT di Remote Config atau backend tambahan bila jumlah pengguna
-      // bertambah banyak; untuk skala prototipe TA, boleh kredensial
-      // bersama per-role yang di-hardcode sementara.
+      // Kredensial MQTT (username/password broker, BEDA dari kredensial
+      // Firebase) dipilih sesuai role — dibuat di HiveMQ Cloud Access
+      // Management, lihat 04_Konfigurasi_HiveMQ.md Bagian 2. Untuk skala
+      // prototipe TA, kredensial ini di-hardcode per-role (bukan per-user
+      // individual) — [DRAF] pertimbangkan mapping uid Firebase -> kredensial
+      // MQTT tersendiri bila jumlah pengguna bertambah banyak di masa depan.
+      final bool isManager = widget.role == UserRole.manager;
       await mqtt.connect(
-        username: 'ISI_USERNAME_MQTT_APLIKASI',
-        password: 'ISI_PASSWORD_MQTT_APLIKASI',
+        username: isManager ? 'flutter-app-manager' : 'flutter-app-operator',
+        password: isManager ? 'ISI_PASSWORD_MQTT_MANAGER' : 'ISI_PASSWORD_MQTT_OPERATOR',
         clientId: 'flutter-${firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch}',
       );
     }

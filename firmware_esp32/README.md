@@ -49,9 +49,20 @@ adalah A0=ZMPT sumber, A1=ZMPT beban, A2=ACS712 sumber, dan A3=ACS712 beban.
 Format data MQTT tidak berubah. ADS1115 dikonfigurasi pada `GAIN_ONE` dan
 `860 SPS`; kalibrasi sensor wajib diulang setelah migrasi.
 
+## Temuan Audit & Perbaikan (setelah migrasi ADS1115 + ESP32-S3)
+
+Empat isu ditemukan lewat pembacaan langsung kode (bukan dari laporan build sukses, yang tidak menangkap jenis masalah ini) dan sudah diperbaiki:
+
+1. **`platformio.ini` masih menyasar board ESP32 klasik** (`board = esp32dev`) meski migrasi ke ESP32-S3 sudah diminta sebelumnya — diperbaiki ke `esp32-s3-devkitc-1`. Kemungkinan prompt migrasi S3 sebelumnya tidak sempat tereksekusi penuh.
+2. **Delay antar-sampel redundan** — `delayMicroseconds(INTERVAL_ADC_US)` dipanggil setelah tiap sampel ADS1115 di `hitungRMS()`, padahal `readADC_SingleEnded()` sendiri sudah *blocking* menunggu konversi selesai. Dampaknya: total waktu 4 kanal × 50 sampel bisa mendekati/melampaui target siklus 1 detik. Delay dihapus dari jalur ADS1115.
+3. **Referensi tegangan ACS712 salah** — kode masih memakai `3300.0f` (asumsi ADC bawaan 3,3V) padahal ADS1115 pada `GAIN_ONE` punya rentang penuh ±4,096V. Ini membuat SETIAP pembacaan arus meleset ~20% terlalu rendah dari nilai sebenarnya, terlepas dari kalibrasi apa pun. Diperbaiki ke `4096.0f`.
+4. **Ambang kualitas data `RMS_ADC_MIN_WAJAR` tidak ikut terskala** — nilai hardcode `5.0f` dikalibrasi untuk rentang lama (0-4095), jadi di rentang baru (0-32767) jadi nyaris tidak berarti (~0,015% dari full-scale) — deteksi sensor lepas/tidak wajar jadi hampir tidak pernah aktif. Diskalakan proporsional.
+
+**Pelajaran untuk workflow ke depan**: perubahan besar (migrasi board/ADC) sebaiknya diverifikasi dengan membaca ulang kode yang benar-benar ter-commit, bukan hanya dari ringkasan "build sukses" — kompilasi berhasil tidak berarti logika/kalibrasinya benar.
+
 ## Asumsi yang Perlu Diverifikasi Sebelum Implementasi Akhir
 
-- Pin UART2 (GPIO16/17) — cek terhadap board DevKit V4 fisik yang dipakai
+- Pin UART (GPIO17 TX/GPIO18 RX) — cek terhadap board ESP32-S3 DevKitC-1 fisik yang dipakai (sudah dikonfirmasi bebas dari pin strapping S3: GPIO0/3/45/46, dan bebas dari pin USB native GPIO19/20)
 - Koefisien kalibrasi ZMPT101B (`ZMPT_*_GAIN/OFFSET`) — isi ulang setelah Panduan Kalibrasi (dokumen 02) dijalankan
 - Sensitivitas ACS712 (`ACS712_MV_PER_AMP`, `ACS712_ZERO_OFFSET_MV`) — nilai datasheet nominal, pertimbangkan kalibrasi serupa untuk akurasi lebih baik
 - Nama fungsi callback `onGetIreg`/`onSetHreg` pada `modbus_slave.cpp` — cek terhadap API.md versi library yang benar-benar terpasang

@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/firebase_service.dart';
+import '../models/sensor_data.dart';
 import 'monitoring_screen.dart';
 import 'kontrol_monitoring_lbs_screen.dart';
 import 'data_activity_screen.dart';
@@ -44,7 +45,7 @@ class MenuOperatorScreen extends StatelessWidget {
             ikon: Icons.monitor_heart_outlined,
             label: 'Monitoring',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MonitoringScreen(bisaKontrol: false)),
+              MaterialPageRoute(builder: (_) => const MonitoringScreen(bisaKontrol: false, role: UserRole.operator)),
             ),
           ),
           _MenuCard(

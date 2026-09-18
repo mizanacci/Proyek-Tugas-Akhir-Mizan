@@ -9,8 +9,37 @@ import 'package:provider/provider.dart';
 import '../services/mqtt_service.dart';
 import '../services/firebase_service.dart';
 
-class KontrolMonitoringLbsScreen extends StatelessWidget {
+class KontrolMonitoringLbsScreen extends StatefulWidget {
   const KontrolMonitoringLbsScreen({super.key});
+
+  @override
+  State<KontrolMonitoringLbsScreen> createState() => _KontrolMonitoringLbsScreenState();
+}
+
+class _KontrolMonitoringLbsScreenState extends State<KontrolMonitoringLbsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _pastikanTerhubungMqtt();
+  }
+
+  // Layar ini khusus Operator (tidak pernah dinavigasi dari menu Manager,
+  // lihat menu_manager_screen.dart) — kredensial operator dipakai langsung
+  // tanpa perlu parameter role seperti di monitoring_screen.dart. Dulu
+  // layar ini TIDAK memastikan koneksinya sendiri, hanya mengasumsikan
+  // sudah tersambung dari layar Monitoring yang mungkin belum pernah
+  // dibuka — diperbaiki agar mandiri.
+  Future<void> _pastikanTerhubungMqtt() async {
+    final mqtt = context.read<MqttService>();
+    if (!mqtt.terhubung) {
+      final firebaseUser = context.read<FirebaseService>().userSaatIni;
+      await mqtt.connect(
+        username: 'flutter-app-operator',
+        password: 'ISI_PASSWORD_MQTT_OPERATOR',
+        clientId: 'flutter-${firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch}',
+      );
+    }
+  }
 
   Future<void> _kirimPerintah(BuildContext context, String perintah) async {
     final konfirmasi = await showDialog<bool>(

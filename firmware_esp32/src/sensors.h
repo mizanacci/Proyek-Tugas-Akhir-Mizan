@@ -2,13 +2,14 @@
  * sensors.h — Modul pembacaan sensor & perhitungan RMS
  * Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
  *
- * CATATAN DESAIN UNTUK MIGRASI ESP32-S3 + ADS1115 (iterasi berikutnya):
- * Seluruh akses ke ADC bawaan ESP32 dibungkus dalam satu fungsi
- * readRawSensor(id) di sensors.cpp. Saat pindah ke ADS1115 (ADC eksternal
- * 16-bit via I2C), HANYA fungsi ini dan bagian inisialisasi ADC di setup()
- * yang perlu diganti — seluruh logika RMS, kalibrasi, Modbus, dan MQTT di
- * modul lain tidak perlu disentuh, karena semuanya memanggil hitungRMS()
- * dan bacaSemuaSensor() di bawah ini, bukan analogRead() secara langsung.
+ * CATATAN DESAIN (migrasi ke ADS1115 sudah diimplementasikan):
+ * Seluruh akses ADC dibungkus dalam satu fungsi readRawSensor(id) di
+ * sensors.cpp, yang sekarang memanggil ADS1115 (ADC eksternal 16-bit via
+ * I2C) alih-alih ADC bawaan ESP32/ESP32-S3. Pola pembungkusan ini yang
+ * membuat migrasi sebelumnya hanya perlu menyentuh fungsi ini dan
+ * sensorsInit() — seluruh logika RMS, kalibrasi, Modbus, dan MQTT di modul
+ * lain tidak perlu disentuh, karena semuanya memanggil hitungRMS() dan
+ * bacaSemuaSensor(), bukan pembacaan ADC secara langsung.
  */
 
 #ifndef SENSORS_H

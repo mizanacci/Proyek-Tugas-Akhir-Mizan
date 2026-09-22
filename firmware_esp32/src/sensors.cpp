@@ -20,7 +20,7 @@ static const int PIN_MAP[JUMLAH_SENSOR] = {
 
 void sensorsInit() {
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  ads.setGain(GAIN_ONE);  // +/-4.096V, sesuai sinyal analog sensor
+  ads.setGain(GAIN_ONE);
   ads.setDataRate(RATE_ADS1115_860SPS);
 
   if (!ads.begin(ADS1115_I2C_ADDR)) {
@@ -34,52 +34,40 @@ int readRawSensor(SensorId id) {
 }
 
 /*
- * Hitung RMS sinyal AC setelah menghilangkan DC bias sensor.
+ * RMS AC yang benar:
  *
- * PENTING:
- * Sebelumnya semua sensor diasumsikan memiliki titik tengah ADC = 16383.5.
- * Itu tidak benar untuk hardware ini.
+ * 1. Ambil N sampel.
+ * 2. Hitung rata-rata (DC bias) dari batch tersebut.
+ * 3. Kurangi setiap sampel dengan rata-rata.
+ * 4. Hitung RMS dari komponen AC.
  *
- * Hasil pengukuran tanpa sinyal:
- *   ZMPT101B = 1.5 V
- *   ACS712   = 0.9 V
+ * Dengan cara ini kita tidak lagi mengasumsikan zero point = ADC/2.
+ * Ini penting karena pengukuran aktual Anda menunjukkan:
+ *   ZMPT tanpa AC  ~= 1.5 V
+ *   ACS712 0 A    ~= 0.9 V
  *
- * Karena itu setiap kanal memakai zero-offset aktual dari config.h.
+ * Estimasi offset per batch juga lebih baik daripada hard-code karena
+ * offset sensor dapat berubah akibat suhu dan tegangan suplai.
  */
-static float hitungRMSDenganOffset(SensorId id, float offset_mv) {
-  const float mv_per_count = 4096.0f / 32768.0f;
-  const float offset_count = offset_mv / mv_per_count;
-
-  double akumulasi_kuadrat = 0.0;
+float hitungRMS(SensorId id) {
+  float sampel[JUMLAH_SAMPEL_RMS];
+  double jumlah = 0.0;
 
   for (int i = 0; i < JUMLAH_SAMPEL_RMS; i++) {
-    int mentah = readRawSensor(id);
-    float selisih = (float)mentah - offset_count;
-    akumulasi_kuadrat += (double)selisih * (double)selisih;
+    sampel[i] = (float)readRawSensor(id);
+    jumlah += sampel[i];
   }
 
-  return sqrt(akumulasi_kuadrat / JUMLAH_SAMPEL_RMS);
-}
+  const float rata_rata = (float)(jumlah / JUMLAH_SAMPEL_RMS);
 
-float hitungRMS(SensorId id) {
-  float offset_mv = 0.0f;
+  double jumlah_kuadrat_ac = 0.0;
 
-  switch (id) {
-    case SENSOR_ZMPT_SUMBER:
-      offset_mv = ZMPT_SUMBER_ZERO_OFFSET_MV;
-      break;
-
-    case SENSOR_ZMPT_BEBAN:
-      offset_mv = ZMPT_BEBAN_ZERO_OFFSET_MV;
-      break;
-
-    case SENSOR_ACS712_SUMBER:
-    case SENSOR_ACS712_BEBAN:
-      offset_mv = ACS712_ZERO_OFFSET_MV;
-      break;
+  for (int i = 0; i < JUMLAH_SAMPEL_RMS; i++) {
+    const float ac = sampel[i] - rata_rata;
+    jumlah_kuadrat_ac += (double)ac * (double)ac;
   }
 
-  return hitungRMSDenganOffset(id, offset_mv);
+  return sqrt(jumlah_kuadrat_ac / JUMLAH_SAMPEL_RMS);
 }
 
 #define RMS_ADC_MIN_WAJAR (ADC_MAX_VALUE * 0.0001f)
@@ -139,8 +127,9 @@ HasilSensor bacaSemuaSensor() {
    * ACS712-20A:
    * sensitivitas nominal = 100 mV/A.
    *
-   * RMS dihitung setelah DC offset 0 A dihilangkan, sehingga pada kondisi
-   * tanpa beban arus idealnya mendekati 0 A.
+   * RMS diambil dari komponen AC setelah DC bias dihilangkan.
+   * Karena VCC sensor Anda sekitar 3.1 V, jangan gunakan VCC/2 sebagai
+   * asumsi offset tetap. Offset aktual diestimasi dari setiap batch.
    */
   const float referensi_mv = 4096.0f;
   const float mv_per_langkah = referensi_mv / ADC_MAX_VALUE;

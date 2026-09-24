@@ -1,0 +1,14 @@
+{
+  "users": {
+    "b5wXOAQuGIQTzqoik1GXPN1rAnG2": {
+      "email": "operator@scada.com",
+      "nama": "Operator SCADA",
+      "role": "operator"
+    },
+    "M0kfMSpeUldPdV9xbWAUSxX54Dx2": {
+      "email": "manager@scada.com",
+      "nama": "Manager SCADA",
+      "role": "manager"
+    }
+  }
+}

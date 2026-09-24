@@ -35,7 +35,7 @@ class _KontrolMonitoringLbsScreenState extends State<KontrolMonitoringLbsScreen>
       final firebaseUser = context.read<FirebaseService>().userSaatIni;
       await mqtt.connect(
         username: 'flutter-app-operator',
-        password: 'ISI_PASSWORD_MQTT_OPERATOR',
+        password: 'MQQTmizan17!',
         clientId: 'flutter-${firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch}',
       );
     }

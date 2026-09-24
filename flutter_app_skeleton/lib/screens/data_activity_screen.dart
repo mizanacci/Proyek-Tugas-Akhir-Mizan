@@ -24,6 +24,18 @@ class DataActivityScreen extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+          if (snapshot.hasError) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Data Activity tidak dapat dibaca. Pastikan sudah login dan '
+                  'Security Rules Firebase sudah dipublikasikan.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
           if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
             return const Center(child: Text('Belum ada riwayat aktivitas.'));
           }

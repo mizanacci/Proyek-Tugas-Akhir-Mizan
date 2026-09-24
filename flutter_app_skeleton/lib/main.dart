@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 
+import 'firebase_options.dart';
 import 'services/firebase_service.dart';
 import 'services/mqtt_service.dart';
 import 'screens/login_screen.dart';
@@ -13,10 +14,9 @@ import 'screens/menu_operator_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // [DRAF] Konfigurasi Firebase (google-services.json / GoogleService-Info.plist
-  // / firebase_options.dart hasil `flutterfire configure`) perlu disiapkan
-  // terlebih dahulu — lihat dokumen 05_Struktur_Workspace.md Bagian 2.
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const ScadaMizanApp());
 }
 

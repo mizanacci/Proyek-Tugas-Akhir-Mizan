@@ -40,7 +40,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       final bool isManager = widget.role == UserRole.manager;
       await mqtt.connect(
         username: isManager ? 'flutter-app-manager' : 'flutter-app-operator',
-        password: isManager ? 'ISI_PASSWORD_MQTT_MANAGER' : 'ISI_PASSWORD_MQTT_OPERATOR',
+        password: isManager ? 'MQQTmizan16!' : 'MQQTmizan17!',
         clientId: 'flutter-${firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch}',
       );
     }
@@ -66,6 +66,15 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.asset(
+                  'assets/images/monitoring_header_background.png',
+                  height: 110,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(height: 16),
               _KartuStatus(label: 'LRUFail', normal: lruf?.normal ?? true),
               _KartuStatus(
                 label: 'COMFail (estimasi)',
@@ -116,7 +125,10 @@ class _KartuStatus extends StatelessWidget {
     return Card(
       color: normal ? Colors.green.shade50 : Colors.red.shade50,
       child: ListTile(
-        leading: Icon(normal ? Icons.check_circle : Icons.error, color: normal ? Colors.green : Colors.red),
+        leading: Icon(
+          normal ? Icons.check_circle : Icons.error,
+          color: normal ? Colors.green : Colors.red,
+        ),
         title: Text(label),
         subtitle: Text(normal ? 'NORMAL' : 'FAIL' '${catatan != null ? " — $catatan" : ""}'),
       ),

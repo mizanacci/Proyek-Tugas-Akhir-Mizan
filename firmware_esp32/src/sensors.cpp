@@ -34,29 +34,26 @@ int readRawSensor(SensorId id) {
 }
 
 float hitungRMS(SensorId id) {
-  // Perhitungan RMS: akumulasi kuadrat dari N sampel berturut-turut,
-  // dengan sinyal AC diasumsikan berosilasi di sekitar titik tengah ADC
-  // (ADC_MAX_VALUE/2) — asumsi ini berlaku untuk sensor yang sudah
-  // dikondisikan sinyalnya (ZMPT101B dan ACS712 keduanya mengeluarkan
-  // sinyal AC yang di-bias ke titik tengah oleh rangkaian on-board modul).
-  const float titik_tengah = ADC_MAX_VALUE / 2.0f;
-  double akumulasi_kuadrat = 0.0;
+    float sampel[JUMLAH_SAMPEL_RMS];
+    double jumlah = 0.0;
 
-  for (int i = 0; i < JUMLAH_SAMPEL_RMS; i++) {
-    int mentah = readRawSensor(id);
-    float selisih = (float)mentah - titik_tengah;
-    akumulasi_kuadrat += (double)(selisih * selisih);
-    // Catatan: TIDAK ada delayMicroseconds(INTERVAL_ADC_US) di sini lagi.
-    // ads.readADC_SingleEnded() di dalam readRawSensor() SUDAH menunggu
-    // (blocking) sampai konversi ADS1115 selesai sesuai data rate yang
-    // diset di sensorsInit() (860 SPS -> ~1,16 ms/konversi) — delay
-    // tambahan di sini dulu redundan dan nyaris menggandakan waktu per
-    // sampel (dulu diperlukan untuk ADC bawaan ESP32 yang hampir instan,
-    // TIDAK berlaku lagi untuk ADS1115). INTERVAL_ADC_US di config.h tetap
-    // dipertahankan untuk kemungkinan kembali ke ADC bawaan di masa depan.
-  }
+    // Ambil seluruh sampel dan hitung rata-rata DC/bias.
+    for (int i = 0; i < JUMLAH_SAMPEL_RMS; i++) {
+        sampel[i] = (float)readRawSensor(id);
+        jumlah += sampel[i];
+    }
 
-  return sqrt(akumulasi_kuadrat / JUMLAH_SAMPEL_RMS);
+    const float rata_rata = (float)(jumlah / JUMLAH_SAMPEL_RMS);
+
+    // Hilangkan komponen DC/bias, kemudian hitung RMS komponen AC.
+    double jumlah_kuadrat_ac = 0.0;
+
+    for (int i = 0; i < JUMLAH_SAMPEL_RMS; i++) {
+        const float ac = sampel[i] - rata_rata;
+        jumlah_kuadrat_ac += (double)ac * (double)ac;
+    }
+
+    return sqrt(jumlah_kuadrat_ac / JUMLAH_SAMPEL_RMS);
 }
 
 // Ambang batas kewajaran (plausibility) untuk penandaan kualitas data
@@ -86,9 +83,31 @@ static float bacaRataRataSensorDCSumber() {
 }
 #endif
 
+// Filter tegangan untuk mengurangi fluktuasi antar-batch RMS.
+// Alpha kecil = lebih stabil tetapi respons perubahan tegangan lebih lambat.
+static float filterTegangan(float nilaiBaru, float &nilaiFilter, bool &sudahAdaData) {
+  const float ALPHA = 0.20f;
+
+  if (!sudahAdaData) {
+    nilaiFilter = nilaiBaru;
+    sudahAdaData = true;
+    return nilaiFilter;
+  }
+
+  nilaiFilter = (ALPHA * nilaiBaru) +
+                ((1.0f - ALPHA) * nilaiFilter);
+
+  return nilaiFilter;
+}
+
 HasilSensor bacaSemuaSensor() {
   HasilSensor hasil;
   hasil.bitmask_kualitas = 0;
+
+  static float tegangan_sumber_filter = 0.0f;
+  static float tegangan_beban_filter = 0.0f;
+  static bool sumber_sudah_ada_data = false;
+  static bool beban_sudah_ada_data = false;
 
 #ifdef MODE_UJI_SENSOR_DC_SUMBER
   // Sensor DC menghasilkan level stabil, jadi gunakan rata-rata ADC, bukan RMS.
@@ -117,12 +136,41 @@ HasilSensor bacaSemuaSensor() {
   // pada GAIN_ONE — lihat penjelasan lengkap di konversi ACS712 di bawah.
   hasil.tegangan_sumber = (adc_dc_sumber / ADC_MAX_VALUE) * 4.096f * RASIO_PEMBAGI_SENSOR_DC;
 #else
-  hasil.tegangan_sumber = ZMPT_SUMBER_GAIN * rms_zmpt_sumber + ZMPT_SUMBER_OFFSET;
+  float tegangan_sumber_baru =
+    ZMPT_SUMBER_GAIN * rms_zmpt_sumber + ZMPT_SUMBER_OFFSET;
+
+  float tegangan_beban_baru =
+    ZMPT_BEBAN_GAIN * rms_zmpt_beban + ZMPT_BEBAN_OFFSET;
+
+  // Deadband untuk menghilangkan residual/noise saat tidak ada AC.
+  const float BATAS_TEGANGAN_OFF = 20.0f;
+
+  if (tegangan_sumber_baru < BATAS_TEGANGAN_OFF) {
+    tegangan_sumber_baru = 0.0f;
+  }
+
+  if (tegangan_beban_baru < BATAS_TEGANGAN_OFF) {
+    tegangan_beban_baru = 0.0f;
+  }
+
+  // Filtering untuk menstabilkan pembacaan tegangan.
+  hasil.tegangan_sumber =
+      filterTegangan(
+          tegangan_sumber_baru,
+          tegangan_sumber_filter,
+          sumber_sudah_ada_data
+      );
+
+  hasil.tegangan_beban =
+      filterTegangan(
+          tegangan_beban_baru,
+          tegangan_beban_filter,
+          beban_sudah_ada_data
+      );
 #endif
-  hasil.tegangan_beban  = ZMPT_BEBAN_GAIN  * rms_zmpt_beban  + ZMPT_BEBAN_OFFSET;
 
   // ACS712: konversi RMS-ADC -> mV -> Ampere memakai sensitivitas datasheet
-  // (185 mV/A untuk varian 5A). Referensi 4096 mV mengikuti rentang penuh
+  // (100 mV/A untuk varian 20A). Referensi 4096 mV mengikuti rentang penuh
   // ADS1115 pada pengaturan GAIN_ONE (+/-4,096V, lihat sensorsInit()) —
   // BUKAN 3,3V seperti asumsi ADC bawaan ESP32 sebelumnya. Bila suatu saat
   // setGain() diubah ke pengaturan lain, angka 4096.0f ini WAJIB
@@ -132,8 +180,16 @@ HasilSensor bacaSemuaSensor() {
   // Panduan Kalibrasi ZMPT101B yang sudah dibuat).
   const float referensi_mv = 4096.0f;
   float mv_per_langkah = referensi_mv / ADC_MAX_VALUE;
-  hasil.arus_sumber = (rms_acs_sumber * mv_per_langkah) / ACS712_MV_PER_AMP;
-  hasil.arus_beban  = (rms_acs_beban  * mv_per_langkah) / ACS712_MV_PER_AMP;
+  float arus_sumber = (rms_acs_sumber * mv_per_langkah) / ACS712_MV_PER_AMP;
+  float arus_beban  = (rms_acs_beban  * mv_per_langkah) / ACS712_MV_PER_AMP;
+
+  // Noise floor sementara untuk pengujian tanpa beban.
+  // Nilai ini harus dikalibrasi kembali setelah karakteristik noise
+  // ACS712 + ADS1115 sudah diketahui.
+  const float BATAS_NOISE_ARUS_A = 3.0f;
+
+  hasil.arus_sumber = (arus_sumber < BATAS_NOISE_ARUS_A) ? 0.0f : arus_sumber;
+  hasil.arus_beban  = (arus_beban  < BATAS_NOISE_ARUS_A) ? 0.0f : arus_beban;
 
   return hasil;
 }

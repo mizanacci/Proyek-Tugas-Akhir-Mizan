@@ -9,22 +9,101 @@
 ///   /settings/durasi_timeout
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../models/sensor_data.dart';
 
 class FirebaseService extends ChangeNotifier {
+  static const _googleWebClientId =
+      '458957628300-bb44js34pdarnr5httlvv2i8njol352t.apps.googleusercontent.com';
+
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final DatabaseReference _db = FirebaseDatabase.instance.ref();
+  final DatabaseReference _db = FirebaseDatabase.instanceFor(
+    app: Firebase.app(),
+    databaseURL: 'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
+  ).ref();
 
   User? get userSaatIni => _auth.currentUser;
 
-  Future<UserRole?> login(String email, String password) async {
+  Stream<User?> get perubahanUser => _auth.authStateChanges();
+
+  Future<UserCredential> daftarDenganEmail(String email, String password) async {
     try {
-      final cred = await _auth.signInWithEmailAndPassword(
-        email: email,
+      return await _auth.createUserWithEmailAndPassword(
+        email: email.trim(),
         password: password,
       );
+    } on FirebaseAuthException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code,
+        message: pesanErrorAuth(e),
+      );
+    }
+  }
+
+  Future<UserCredential> loginDenganEmail(String email, String password) async {
+    try {
+      return await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+    } on FirebaseAuthException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code,
+        message: pesanErrorAuth(e),
+      );
+    }
+  }
+
+  Future<UserCredential?> loginDenganGoogle() async {
+    try {
+      final akunGoogle = await GoogleSignIn(
+        serverClientId: _googleWebClientId,
+      ).signIn();
+      if (akunGoogle == null) return null;
+
+      final autentikasiGoogle = await akunGoogle.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: autentikasiGoogle.accessToken,
+        idToken: autentikasiGoogle.idToken,
+      );
+      return await _auth.signInWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code,
+        message: pesanErrorAuth(e),
+      );
+    } catch (e) {
+      throw Exception('Login Google gagal: $e');
+    }
+  }
+
+  static String pesanErrorAuth(FirebaseAuthException error) {
+    switch (error.code) {
+      case 'weak-password':
+        return 'Password terlalu lemah. Gunakan minimal 6 karakter.';
+      case 'email-already-in-use':
+        return 'Email sudah digunakan oleh akun lain.';
+      case 'invalid-email':
+        return 'Format email tidak valid.';
+      case 'user-not-found':
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'Email atau password salah.';
+      case 'user-disabled':
+        return 'Akun ini telah dinonaktifkan.';
+      case 'too-many-requests':
+        return 'Terlalu banyak percobaan. Coba lagi nanti.';
+      default:
+        return error.message ?? 'Operasi autentikasi gagal.';
+    }
+  }
+
+  Future<UserRole?> login(String email, String password) async {
+    try {
+      final cred = await loginDenganEmail(email, password);
       final uid = cred.user?.uid;
       if (uid == null) return null;
 
@@ -43,6 +122,18 @@ class FirebaseService extends ChangeNotifier {
 
   Future<void> logout() async {
     await _auth.signOut();
+  }
+
+  Future<void> tulisScadaData(Map<String, dynamic> nilai) async {
+    await _db.child('scada_data').set(nilai);
+  }
+
+  Future<DataSnapshot> bacaScadaData() {
+    return _db.child('scada_data').get();
+  }
+
+  Stream<DatabaseEvent> streamScadaData() {
+    return _db.child('scada_data').onValue;
   }
 
   /// Mencatat satu entri Data Activity — dipanggil setiap kali Operator

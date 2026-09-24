@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "458957628300",
+    "firebase_url": "https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "scada-mizan-ta",
+    "storage_bucket": "scada-mizan-ta.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:458957628300:android:cb38f13c387d3c71cfeca9",
+        "android_client_info": {
+          "package_name": "com.example.scada_mizan_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "458957628300-bb44js34pdarnr5httlvv2i8njol352t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWhfB9pyNpychXm5L9wroYwRFU43q3smQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "458957628300-bb44js34pdarnr5httlvv2i8njol352t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

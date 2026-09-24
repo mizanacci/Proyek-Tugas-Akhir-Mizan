@@ -11,7 +11,6 @@
 
 static Adafruit_ADS1115 ads;
 
-// Pemetaan SensorId -> kanal ADS1115 A0-A3 sesuai wiring fisik.
 static const int PIN_MAP[JUMLAH_SENSOR] = {
   0, // ZMPT sumber -> A0
   1, // ZMPT beban  -> A1
@@ -21,8 +20,9 @@ static const int PIN_MAP[JUMLAH_SENSOR] = {
 
 void sensorsInit() {
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  ads.setGain(GAIN_ONE);  // rentang +/-4.096V, sesuai untuk sinyal sensor 0-3.3V
+  ads.setGain(GAIN_ONE);
   ads.setDataRate(RATE_ADS1115_860SPS);
+
   if (!ads.begin(ADS1115_I2C_ADDR)) {
     Serial.println("[FATAL] ADS1115 tidak terdeteksi - cek wiring I2C.");
     while (true) { delay(1000); }
@@ -33,6 +33,22 @@ int readRawSensor(SensorId id) {
   return (int)ads.readADC_SingleEnded(PIN_MAP[id]);
 }
 
+/*
+ * RMS AC yang benar:
+ *
+ * 1. Ambil N sampel.
+ * 2. Hitung rata-rata (DC bias) dari batch tersebut.
+ * 3. Kurangi setiap sampel dengan rata-rata.
+ * 4. Hitung RMS dari komponen AC.
+ *
+ * Dengan cara ini kita tidak lagi mengasumsikan zero point = ADC/2.
+ * Ini penting karena pengukuran aktual Anda menunjukkan:
+ *   ZMPT tanpa AC  ~= 1.5 V
+ *   ACS712 0 A    ~= 0.9 V
+ *
+ * Estimasi offset per batch juga lebih baik daripada hard-code karena
+ * offset sensor dapat berubah akibat suhu dan tegangan suplai.
+ */
 float hitungRMS(SensorId id) {
     float sampel[JUMLAH_SAMPEL_RMS];
     double jumlah = 0.0;
@@ -56,16 +72,12 @@ float hitungRMS(SensorId id) {
     return sqrt(jumlah_kuadrat_ac / JUMLAH_SAMPEL_RMS);
 }
 
-// Ambang batas kewajaran (plausibility) untuk penandaan kualitas data
-// GOOD/SUSPECT — [DRAF, nilai perlu disesuaikan setelah kalibrasi fisik
-// dan pengamatan rentang normal operasi prototipe]. Nilai RMS ADC mentah
-// yang berada jauh di luar rentang ini (mendekati batas ADC, atau nol
-// total) dianggap tidak wajar/kemungkinan sensor lepas atau jenuh.
-#define RMS_ADC_MIN_WAJAR   (ADC_MAX_VALUE * 0.0012f)  // setara ~5 dari skala lama 4095 (proporsional, bukan hardcode absolut)
-#define RMS_ADC_MAX_WAJAR   (ADC_MAX_VALUE / 2.0f * 0.98f)  // 98% dari setengah rentang, margin dari saturasi
+#define RMS_ADC_MIN_WAJAR (ADC_MAX_VALUE * 0.0001f)
+#define RMS_ADC_MAX_WAJAR (ADC_MAX_VALUE * 0.98f)
 
 static bool nilaiWajar(float rms_adc_mentah) {
-  return (rms_adc_mentah >= RMS_ADC_MIN_WAJAR) && (rms_adc_mentah <= RMS_ADC_MAX_WAJAR);
+  return (rms_adc_mentah >= RMS_ADC_MIN_WAJAR) &&
+         (rms_adc_mentah <= RMS_ADC_MAX_WAJAR);
 }
 
 #ifdef MODE_UJI_SENSOR_DC_SUMBER
@@ -75,8 +87,6 @@ static float bacaRataRataSensorDCSumber() {
 
   for (int i = 0; i < jumlah_sampel_dc; i++) {
     total_sampel += readRawSensor(SENSOR_ZMPT_SUMBER);
-    // Lihat catatan di hitungRMS() — delay eksplisit dihapus, konversi
-    // ADS1115 sendiri sudah memberi jeda yang cukup antar-sampel.
   }
 
   return (float)total_sampel / jumlah_sampel_dc;
@@ -110,17 +120,15 @@ HasilSensor bacaSemuaSensor() {
   static bool beban_sudah_ada_data = false;
 
 #ifdef MODE_UJI_SENSOR_DC_SUMBER
-  // Sensor DC menghasilkan level stabil, jadi gunakan rata-rata ADC, bukan RMS.
   float adc_dc_sumber = bacaRataRataSensorDCSumber();
 #else
   float rms_zmpt_sumber = hitungRMS(SENSOR_ZMPT_SUMBER);
 #endif
-  float rms_zmpt_beban  = hitungRMS(SENSOR_ZMPT_BEBAN);
-  float rms_acs_sumber  = hitungRMS(SENSOR_ACS712_SUMBER);
-  float rms_acs_beban   = hitungRMS(SENSOR_ACS712_BEBAN);
 
-  // Evaluasi kualitas data SEBELUM konversi ke satuan fisik, karena ambang
-  // batas kewajaran didefinisikan dalam domain ADC mentah.
+  float rms_zmpt_beban = hitungRMS(SENSOR_ZMPT_BEBAN);
+  float rms_acs_sumber = hitungRMS(SENSOR_ACS712_SUMBER);
+  float rms_acs_beban  = hitungRMS(SENSOR_ACS712_BEBAN);
+
 #ifndef MODE_UJI_SENSOR_DC_SUMBER
   if (!nilaiWajar(rms_zmpt_sumber)) hasil.bitmask_kualitas |= (1 << 0);
 #endif
@@ -128,13 +136,9 @@ HasilSensor bacaSemuaSensor() {
   if (!nilaiWajar(rms_acs_sumber))  hasil.bitmask_kualitas |= (1 << 2);
   if (!nilaiWajar(rms_acs_beban))   hasil.bitmask_kualitas |= (1 << 3);
 
-  // Konversi ke satuan fisik memakai koefisien kalibrasi (config.h).
-  // ZMPT101B: hubungan linear langsung dari hasil regresi kalibrasi.
 #ifdef MODE_UJI_SENSOR_DC_SUMBER
-  // Pengecualian kualitas bit0 sementara; ambang RMS tidak berlaku untuk DC.
-  // Catatan: referensi 4,096V (bukan 3,3V) mengikuti rentang penuh ADS1115
-  // pada GAIN_ONE — lihat penjelasan lengkap di konversi ACS712 di bawah.
-  hasil.tegangan_sumber = (adc_dc_sumber / ADC_MAX_VALUE) * 4.096f * RASIO_PEMBAGI_SENSOR_DC;
+  hasil.tegangan_sumber =
+      (adc_dc_sumber / ADC_MAX_VALUE) * 4.096f * RASIO_PEMBAGI_SENSOR_DC;
 #else
   float tegangan_sumber_baru =
     ZMPT_SUMBER_GAIN * rms_zmpt_sumber + ZMPT_SUMBER_OFFSET;
@@ -190,6 +194,7 @@ HasilSensor bacaSemuaSensor() {
 
   hasil.arus_sumber = (arus_sumber < BATAS_NOISE_ARUS_A) ? 0.0f : arus_sumber;
   hasil.arus_beban  = (arus_beban  < BATAS_NOISE_ARUS_A) ? 0.0f : arus_beban;
+#endif
 
   return hasil;
 }

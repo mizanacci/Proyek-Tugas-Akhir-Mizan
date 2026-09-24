@@ -1,139 +1,63 @@
 /**
  * config.h — Konfigurasi pusat firmware ESP32
  * Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
- *
- * File ini adalah SUMBER KEBENARAN TUNGGAL untuk seluruh pin, alamat register
- * Modbus RTU, dan konstanta kalibrasi. Modul lain (sensors, modbus_slave,
- * mqtt_handler, main) merujuk ke sini — jangan menulis ulang nilai yang sama
- * secara terpisah di file lain, agar tidak ada dua versi konfigurasi yang
- * bisa saling bertentangan.
- *
- * Setiap nilai yang ditandai [DRAF] adalah usulan desain yang perlu
- * dikonfirmasi terhadap ladder logic aktual di CX-Programmer sebelum
- * digunakan pada implementasi akhir.
  */
-
 #ifndef CONFIG_H
 #define CONFIG_H
-
 #include <Arduino.h>
 
-// =============================================================
-// 1. I2C — ADS1115 UNTUK SENSOR TEGANGAN & ARUS
-// =============================================================
 #define PIN_I2C_SDA       8
 #define PIN_I2C_SCL       9
 #define ADS1115_I2C_ADDR  0x48
 
-// Referensi sejarah desain migrasi ESP32 ADC: kanal sensor kini dibaca
-// melalui ADS1115 A0-A3 dan definisi GPIO lama tidak lagi dipakai.
-// #define PIN_ZMPT_SUMBER   32   // digantikan ADS1115 A0
-// #define PIN_ZMPT_BEBAN    33   // digantikan ADS1115 A1
-// #define PIN_ACS712_SUMBER 34   // digantikan ADS1115 A2
-// #define PIN_ACS712_BEBAN  35   // digantikan ADS1115 A3
+#define PIN_MODBUS_RX2  16
+#define PIN_MODBUS_TX2  17
+#define MODBUS_BAUDRATE 9600
+#define MODBUS_SLAVE_ID 1
 
-// =============================================================
-// 2. UART2 — KOMUNIKASI MODBUS RTU KE PLC (via modul MAX3232)
-// =============================================================
-// [DRAF - perlu dikonfirmasi terhadap board DevKit V4 aktual yang dipakai;
-//  16/17 adalah default UART2 paling umum pada ESP32 WROOM-32 DevKit]
-#define PIN_MODBUS_RX2  16   // RX2 ESP32  <- TXD MAX3232
-#define PIN_MODBUS_TX2  17   // TX2 ESP32  -> RXD MAX3232
-#define MODBUS_BAUDRATE 9600 // sesuai proposal BAB 3 (anggaran waktu timing budget)
-#define MODBUS_SLAVE_ID 1    // [DRAF] ID slave ESP32 — samakan dengan konfigurasi
-                              // Modbus-RTU Easy Master pada PLC Setup CX-Programmer
+#define REG_RMS_V_SUMBER   0
+#define REG_RMS_V_BEBAN    1
+#define REG_RMS_I_SUMBER   2
+#define REG_RMS_I_BEBAN    3
+#define REG_KUALITAS_DATA  4
+#define REG_LRUFAIL        5
+#define REG_CMD_REMOTE     6
 
-// =============================================================
-// 3. PETA REGISTER MODBUS RTU (ESP32 = SLAVE, PLC = MASTER) — [DRAF]
-// =============================================================
-// Alamat 0-based, mengikuti konvensi library ModbusRTU (emelianov/modbus-esp8266).
-// PENTING: nomor alamat di sini HARUS disamakan secara manual dengan
-// pemetaan yang dikonfigurasi pada PLC Setup > Modbus-RTU Easy Master di
-// CX-Programmer — kedua sisi harus sepakat, library ini tidak melakukan
-// sinkronisasi otomatis.
-//
-// Input Register (fungsi baca 04, read-only dari sisi PLC): hasil pengukuran
-#define REG_RMS_V_SUMBER   0   // uint16, skala x100  -> Volt (mis. 21950 = 219,50 V)
-#define REG_RMS_V_BEBAN    1   // uint16, skala x100  -> Volt
-#define REG_RMS_I_SUMBER   2   // uint16, skala x1000 -> Ampere (mis. 1500 = 1,500 A)
-#define REG_RMS_I_BEBAN    3   // uint16, skala x1000 -> Ampere
-#define REG_KUALITAS_DATA  4   // uint16 bitmask: bit0=V_sumber,bit1=V_beban,
-                                //   bit2=I_sumber,bit3=I_beban; 0=GOOD,1=SUSPECT
-#define REG_LRUFAIL        5   // uint16: 0=NORMAL, 1=FAIL (status link ESP32<->broker)
-
-// Holding Register (fungsi baca/tulis 03/06, PLC membaca DAN menulis-balik):
-// perintah remote dari aplikasi mobile, diteruskan ESP32 -> PLC
-#define REG_CMD_REMOTE     6   // uint16: 0=tidak ada perintah baru, 1=NO, 2=NC.
-                                // PLC WAJIB menulis balik 0 ke register ini setelah
-                                // perintah dieksekusi (pola acknowledge), agar tidak
-                                // tereksekusi ulang pada polling berikutnya. Lihat
-                                // catatan desain COMFail/handshake di README modul ini.
-
-// Faktor skala (dipakai sensors.cpp saat mengubah nilai fisik -> integer register)
 #define SKALA_TEGANGAN   100.0f
 #define SKALA_ARUS       1000.0f
 
-// Mode uji bangku sementara untuk sensor tegangan DC 0-25V pada PIN_ZMPT_SUMBER.
-// Nonaktifkan (comment) baris ini untuk kembali ke pembacaan ZMPT101B normal.
-#define MODE_UJI_SENSOR_DC_SUMBER
-// Asumsi modul generik R1=30k/R2=7.5k; [PERLU VERIFIKASI terhadap modul fisik].
+// Mode uji sensor DC DINONAKTIFKAN.
+// Sistem utama menggunakan ZMPT101B AC pada A0/A1.
+// #define MODE_UJI_SENSOR_DC_SUMBER
 #define RASIO_PEMBAGI_SENSOR_DC  5.0f
 
-// =============================================================
-// 4. KALIBRASI SENSOR — [DRAF, WAJIB DIISI ULANG SETELAH KALIBRASI FISIK]
-// =============================================================
-// Koefisien regresi linear V_aktual = GAIN * RMS_ADC_mentah + OFFSET,
-// hasil dari prosedur pada dokumen 02_Panduan_Kalibrasi_ZMPT101B.md.
-// NILAI DI BAWAH INI ADALAH PLACEHOLDER — belum dikalibrasi terhadap
-// modul fisik. JANGAN dipakai untuk pengukuran nyata sebelum diisi ulang.
+// Koefisien ZMPT101B adalah placeholder sampai kalibrasi final.
 #define ZMPT_SUMBER_GAIN    0.1f
 #define ZMPT_SUMBER_OFFSET  0.0f
 #define ZMPT_BEBAN_GAIN     0.1f
 #define ZMPT_BEBAN_OFFSET   0.0f
 
-// ACS712 5A: sensitivitas datasheet nominal 185 mV/A, titik tengah (0A) di
-// Vcc/2. Nilai ini adalah TITIK AWAL — sensitivitas aktual tiap modul fisik
-// bervariasi +-beberapa persen dari nominal datasheet, sebaiknya diverifikasi
-// dengan metode kalibrasi serupa Bagian 3 dokumen kalibrasi (bandingkan
-// terhadap ammeter acuan pada beberapa titik arus uji) sebelum dipakai untuk
-// pengukuran presisi.
-#define ACS712_MV_PER_AMP   185.0f
-#define ACS712_ZERO_OFFSET_MV 1650.0f  // [DRAF] titik tengah 0A dalam mV, nominal Vcc/2 untuk Vcc=3.3V
+// ACS712-20A nominal: 100 mV/A.
+// RMS firmware menghilangkan DC bias secara otomatis dari setiap batch sampel,
+// sehingga tidak lagi mengasumsikan titik tengah = ADC/2.
+#define ACS712_MV_PER_AMP   100.0f
 
-// Ambang batas klasifikasi "Arus Gangguan" (Event, ditampilkan HMI) — [DRAF,
-// nilai contoh dari mock-up proposal Tabel Pesan Notifikasi HMI: 2-4A].
-// Klasifikasi Warning/Alarm/Event yang lebih luas (Status LBS, Hot Line,
-// LRUFail, COMFail) diusulkan tetap dihitung di ladder logic PLC memakai
-// register mentah di atas, BUKAN dikirim sebagai register terpisah dari
-// ESP32 — lihat catatan desain di README modul ini.
+#define JUMLAH_SAMPEL_RMS   50
+#define INTERVAL_ADC_US     2000
+#define TARGET_SIKLUS_MS    1000
 
-// =============================================================
-// 5. PARAMETER RMS & TIMING (mengikuti anggaran waktu proposal BAB 3.4.4)
-// =============================================================
-#define JUMLAH_SAMPEL_RMS   50     // sampel per kanal per siklus perhitungan RMS
-#define INTERVAL_ADC_US     2000   // jarak antar-sampel ADC per kanal (mikrodetik) -> [DRAF]
-#define TARGET_SIKLUS_MS    1000   // target interval pembaruan data end-to-end (1 detik, proposal)
-
-// =============================================================
-// 6. WIFI & MQTT (HiveMQ Cloud) — ISI DENGAN KREDENSIAL ASLI, JANGAN COMMIT KE GIT
-// =============================================================
 #define WIFI_SSID       "ISI_NILAI_DI_SINI"
 #define WIFI_PASSWORD   "ISI_NILAI_DI_SINI"
-
-#define MQTT_HOST       "ISI_NILAI_DI_SINI"   // dari HiveMQ Cloud Console -> Overview
-#define MQTT_PORT       8883                                 // TLS, sesuai Konfigurasi HiveMQ (dokumen 04)
-// PLACEHOLDER: buat credential device di HiveMQ Cloud > cluster "Free #1"
-// > Access Management dengan permission Publish and Subscribe. Gunakan topic
-// filter # atau scada/mizan/#, lalu isi username dan password hasilnya di sini.
+#define MQTT_HOST       "ISI_NILAI_DI_SINI"
+#define MQTT_PORT       8883
 #define MQTT_USERNAME   "ISI_NILAI_DI_SINI"
 #define MQTT_PASSWORD   "ISI_NILAI_DI_SINI"
-#define MQTT_CLIENT_ID  "esp32-scada-mizan-01"  // harus unik per device yang terhubung
+#define MQTT_CLIENT_ID  "esp32-scada-mizan-01"
 
-// Struktur topic — lihat 04_Konfigurasi_HiveMQ.md untuk penjelasan lengkap
-#define TOPIC_DATA_SENSOR   "scada/mizan/data/sensor"     // publish: JSON 4 RMS + kualitas data
-#define TOPIC_STATUS_LRUF   "scada/mizan/status/lrufail"  // publish: status LRUFail
-#define TOPIC_STATUS_COMF   "scada/mizan/status/comfail"  // publish: estimasi sisi ESP32 (lihat catatan)
-#define TOPIC_STATUS_LWT    "scada/mizan/status/lwt"      // Last Will and Testament
-#define TOPIC_CMD_REMOTE    "scada/mizan/cmd/relay"       // subscribe: perintah NO/NC dari aplikasi
+#define TOPIC_DATA_SENSOR   "scada/mizan/data/sensor"
+#define TOPIC_STATUS_LRUF  "scada/mizan/status/lrufail"
+#define TOPIC_STATUS_COMF  "scada/mizan/status/comfail"
+#define TOPIC_STATUS_LWT   "scada/mizan/status/lwt"
+#define TOPIC_CMD_REMOTE   "scada/mizan/cmd/relay"
 
 #endif // CONFIG_H

@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
+import '../config/app_secrets.dart';
 import '../models/sensor_data.dart';
 
 // Samakan dengan config.h firmware & dokumen 04_Konfigurasi_HiveMQ.md
@@ -29,8 +30,62 @@ class MqttService extends ChangeNotifier {
   SensorData? dataSensorTerbaru;
   StatusLink? statusLRUFail;
   StatusLink? statusCOMFail;
+  DateTime? terakhirDataDiterima;
+  bool _dataBasi = true;
+  Timer? _timerBasi;
 
   bool get terhubung => _terhubung;
+  bool get dataBasi => _dataBasi;
+
+  LinkState get lruState => statusLRUFail == null
+      ? LinkState.unknown
+      : (statusLRUFail!.normal ? LinkState.normal : LinkState.fail);
+
+  LinkState get comState => statusCOMFail == null
+      ? LinkState.unknown
+      : (statusCOMFail!.normal ? LinkState.normal : LinkState.fail);
+
+  String? get alasanTidakBisaKirim {
+    if (!terhubung) return 'Belum terhubung ke server MQTT.';
+    if (lruState == LinkState.unknown || comState == LinkState.unknown) {
+      return 'Menunggu status LRUFail/COMFail dari perangkat…';
+    }
+    if (lruState == LinkState.fail) {
+      return 'LRUFail: ESP32 terputus dari broker.';
+    }
+    if (comState == LinkState.fail) {
+      return 'COMFail: komunikasi Modbus RTU ESP32–PLC bermasalah.';
+    }
+    if (dataBasi) {
+      return 'Data sensor tidak diperbarui lebih dari 5 detik.';
+    }
+    return null;
+  }
+
+  MqttService() {
+    _timerBasi = Timer.periodic(const Duration(seconds: 1), (_) {
+      final dataBasiBaru = terakhirDataDiterima == null ||
+          DateTime.now().difference(terakhirDataDiterima!) >
+              const Duration(seconds: 5);
+      if (dataBasiBaru != _dataBasi) {
+        _dataBasi = dataBasiBaru;
+        notifyListeners();
+      }
+    });
+  }
+
+  Future<bool> connectForRole(UserRole role, String uid) {
+    final bool isManager = role == UserRole.manager;
+    return connect(
+      username: isManager
+          ? AppSecrets.mqttManagerUsername
+          : AppSecrets.mqttOperatorUsername,
+      password: isManager
+          ? AppSecrets.mqttManagerPassword
+          : AppSecrets.mqttOperatorPassword,
+      clientId: 'flutter-$uid',
+    );
+  }
 
   /// Panggil sekali (mis. dari initState halaman utama setelah login) dengan
   /// kredensial spesifik role/user yang sedang login. clientId HARUS unik
@@ -84,6 +139,11 @@ class MqttService extends ChangeNotifier {
 
   void _onDisconnected() {
     _terhubung = false;
+    statusLRUFail = null;
+    statusCOMFail = null;
+    dataSensorTerbaru = null;
+    terakhirDataDiterima = null;
+    _dataBasi = true;
     notifyListeners();
     debugPrint('[MQTT] Terputus.');
   }
@@ -103,6 +163,8 @@ class MqttService extends ChangeNotifier {
         final Map<String, dynamic> json = jsonDecode(payload);
         if (topic == _topicDataSensor) {
           dataSensorTerbaru = SensorData.fromJson(json);
+          terakhirDataDiterima = DateTime.now();
+          if (_dataBasi) _dataBasi = false;
         } else if (topic == _topicStatusLruf) {
           statusLRUFail = StatusLink.fromJson(json);
         } else if (topic == _topicStatusComf) {
@@ -135,5 +197,11 @@ class MqttService extends ChangeNotifier {
 
   void disconnect() {
     _client.disconnect();
+  }
+
+  @override
+  void dispose() {
+    _timerBasi?.cancel();
+    super.dispose();
   }
 }

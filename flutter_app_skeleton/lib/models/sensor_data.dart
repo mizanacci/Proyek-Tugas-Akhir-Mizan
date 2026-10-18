@@ -10,7 +10,8 @@ class SensorData {
   final double teganganBeban;
   final double arusSumber;
   final double arusBeban;
-  final int bitmaskKualitas; // bit0..3: V_sumber,V_beban,I_sumber,I_beban — 0=GOOD,1=SUSPECT
+  final int
+      bitmaskKualitas; // bit0..3: V_sumber,V_beban,I_sumber,I_beban — 0=GOOD,1=SUSPECT
   final int timestampMs;
 
   SensorData({
@@ -38,6 +39,8 @@ class SensorData {
   bool get kualitasISumberGood => (bitmaskKualitas & 0x04) == 0;
   bool get kualitasIBebanGood => (bitmaskKualitas & 0x08) == 0;
 }
+
+enum LinkState { unknown, normal, fail }
 
 /// Status NORMAL/FAIL generik — dipakai untuk LRUFail maupun estimasi COMFail.
 class StatusLink {

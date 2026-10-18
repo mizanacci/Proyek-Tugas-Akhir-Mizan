@@ -6,16 +6,17 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'dart:async';
-import '../config/app_secrets.dart';
 import '../services/mqtt_service.dart';
 import '../services/firebase_service.dart';
 import '../models/sensor_data.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/status_link_tile.dart';
 
 class MonitoringScreen extends StatefulWidget {
   final bool bisaKontrol; // diteruskan oleh layar pemanggil; lihat catatan file
   final UserRole role; // menentukan kredensial MQTT mana yang dipakai
-  const MonitoringScreen({super.key, required this.bisaKontrol, required this.role});
+  const MonitoringScreen(
+      {super.key, required this.bisaKontrol, required this.role});
 
   @override
   State<MonitoringScreen> createState() => _MonitoringScreenState();
@@ -32,17 +33,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     final mqtt = context.read<MqttService>();
     if (!mqtt.terhubung) {
       final firebaseUser = context.read<FirebaseService>().userSaatIni;
-      // Kredensial MQTT (username/password broker, BEDA dari kredensial
-      // Firebase) dipilih sesuai role — dibuat di HiveMQ Cloud Access
-      // Management, lihat 04_Konfigurasi_HiveMQ.md Bagian 2. Untuk skala
-      // prototipe TA, kredensial ini di-hardcode per-role (bukan per-user
-      // individual) — [DRAF] pertimbangkan mapping uid Firebase -> kredensial
-      // MQTT tersendiri bila jumlah pengguna bertambah banyak di masa depan.
-      final bool isManager = widget.role == UserRole.manager;
-      await mqtt.connect(
-        username: isManager ? AppSecrets.mqttManagerUsername : AppSecrets.mqttOperatorUsername,
-        password: isManager ? AppSecrets.mqttManagerPassword : AppSecrets.mqttOperatorPassword,
-        clientId: 'flutter-${firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch}',
+      await mqtt.connectForRole(
+        widget.role,
+        firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch.toString(),
       );
     }
   }
@@ -54,14 +47,19 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       body: Consumer<MqttService>(
         builder: (context, mqtt, _) {
           final data = mqtt.dataSensorTerbaru;
-          final lruf = mqtt.statusLRUFail;
-          final comf = mqtt.statusCOMFail;
-
           if (!mqtt.terhubung) {
-            return const Center(child: Text('Menghubungkan ke server...'));
+            return const EmptyState(
+              imageAsset: 'assets/images/empty_mqtt_disconnected.png',
+              title: 'Belum terhubung ke server',
+              message: 'Memeriksa koneksi MQTT…',
+            );
           }
           if (data == null) {
-            return const Center(child: Text('Menunggu data sensor pertama...'));
+            return const EmptyState(
+              imageAsset: 'assets/images/empty_sensor_waiting.png',
+              title: 'Menunggu data sensor',
+              message: 'ESP32 belum mengirim data pertama',
+            );
           }
 
           return ListView(
@@ -72,15 +70,42 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                 child: Image.asset(
                   'assets/images/monitoring_header_background.png',
                   height: 110,
+                  cacheWidth: 900,
                   fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => const SizedBox(
+                    height: 110,
+                    child:
+                        Center(child: Icon(Icons.image_not_supported_outlined)),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
-              _KartuStatus(label: 'LRUFail', normal: lruf?.normal ?? true),
-              _KartuStatus(
-                label: 'COMFail (estimasi)',
-                normal: comf?.normal ?? true,
-                catatan: 'Estimasi sisi ESP32 — lihat README firmware',
+              if (mqtt.dataBasi) ...[
+                Card(
+                  color: Colors.orange.shade50,
+                  child: ListTile(
+                    leading: const Icon(Icons.warning_amber_rounded,
+                        color: Colors.orange),
+                    title: Text(
+                      'Data sensor tidak diperbarui sejak '
+                      '${_formatWaktu(mqtt.terakhirDataDiterima)}',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              StatusLinkTile(
+                label: 'Koneksi ESP32 ke broker (LRUFail)',
+                state: mqtt.lruState,
+              ),
+              StatusLinkTile(
+                label: 'Komunikasi Modbus ESP32–PLC (COMFail)',
+                state: mqtt.comState,
+                subtitle: 'Estimasi dari sisi ESP32',
+              ),
+              Text(
+                'Terakhir diperbarui: ${_formatWaktu(mqtt.terakhirDataDiterima)}',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 16),
               _KartuUkuran(
@@ -115,26 +140,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   }
 }
 
-class _KartuStatus extends StatelessWidget {
-  final String label;
-  final bool normal;
-  final String? catatan;
-  const _KartuStatus({required this.label, required this.normal, this.catatan});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: normal ? Colors.green.shade50 : Colors.red.shade50,
-      child: ListTile(
-        leading: Icon(
-          normal ? Icons.check_circle : Icons.error,
-          color: normal ? Colors.green : Colors.red,
-        ),
-        title: Text(label),
-        subtitle: Text(normal ? 'NORMAL' : 'FAIL' '${catatan != null ? " — $catatan" : ""}'),
-      ),
-    );
-  }
+String _formatWaktu(DateTime? waktu) {
+  if (waktu == null) return '--:--:--';
+  final jam = waktu.hour.toString().padLeft(2, '0');
+  final menit = waktu.minute.toString().padLeft(2, '0');
+  final detik = waktu.second.toString().padLeft(2, '0');
+  return '$jam:$menit:$detik';
 }
 
 class _KartuUkuran extends StatelessWidget {
@@ -142,15 +153,23 @@ class _KartuUkuran extends StatelessWidget {
   final double nilai;
   final String satuan;
   final bool good;
-  const _KartuUkuran({required this.label, required this.nilai, required this.satuan, required this.good});
+  const _KartuUkuran(
+      {required this.label,
+      required this.nilai,
+      required this.satuan,
+      required this.good});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       child: ListTile(
         title: Text(label),
-        trailing: Text('${nilai.toStringAsFixed(2)} $satuan', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        subtitle: good ? null : const Text('SUSPECT — nilai di luar rentang wajar', style: TextStyle(color: Colors.orange)),
+        trailing: Text('${nilai.toStringAsFixed(2)} $satuan',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        subtitle: good
+            ? null
+            : const Text('SUSPECT — nilai di luar rentang wajar',
+                style: TextStyle(color: Colors.orange)),
       ),
     );
   }

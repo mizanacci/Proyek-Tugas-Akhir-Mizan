@@ -6,18 +6,21 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../config/app_secrets.dart';
 import '../services/mqtt_service.dart';
 import '../services/firebase_service.dart';
+import '../models/sensor_data.dart';
+import '../widgets/status_link_tile.dart';
 
 class KontrolMonitoringLbsScreen extends StatefulWidget {
   const KontrolMonitoringLbsScreen({super.key});
 
   @override
-  State<KontrolMonitoringLbsScreen> createState() => _KontrolMonitoringLbsScreenState();
+  State<KontrolMonitoringLbsScreen> createState() =>
+      _KontrolMonitoringLbsScreenState();
 }
 
-class _KontrolMonitoringLbsScreenState extends State<KontrolMonitoringLbsScreen> {
+class _KontrolMonitoringLbsScreenState
+    extends State<KontrolMonitoringLbsScreen> {
   @override
   void initState() {
     super.initState();
@@ -34,10 +37,9 @@ class _KontrolMonitoringLbsScreenState extends State<KontrolMonitoringLbsScreen>
     final mqtt = context.read<MqttService>();
     if (!mqtt.terhubung) {
       final firebaseUser = context.read<FirebaseService>().userSaatIni;
-      await mqtt.connect(
-        username: AppSecrets.mqttOperatorUsername,
-        password: AppSecrets.mqttOperatorPassword,
-        clientId: 'flutter-${firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch}',
+      await mqtt.connectForRole(
+        UserRole.operator,
+        firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch.toString(),
       );
     }
   }
@@ -49,27 +51,35 @@ class _KontrolMonitoringLbsScreenState extends State<KontrolMonitoringLbsScreen>
         title: const Text('Konfirmasi Perintah'),
         content: Text('Kirim perintah $perintah ke relay MY2N?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Kirim')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Kirim')),
         ],
       ),
     );
     if (konfirmasi != true || !context.mounted) return;
 
-    context.read<MqttService>().kirimPerintahRelay(perintah);
-    // Catat ke Data Activity — lihat firebase_service.dart. Dicatat SEGERA
-    // setelah perintah dikirim (bukan menunggu konfirmasi eksekusi PLC),
-    // karena eksekusi sebenarnya masih tunduk pada gerbang Hot Line/LRUFail/
-    // COMFail di ladder logic PLC — log ini mencatat "perintah dikirim dari
-    // aplikasi", bukan "perintah berhasil dieksekusi". Pertimbangkan
-    // menambah field status eksekusi terpisah bila BAB 4 memerlukan
-    // pembedaan ini secara eksplisit.
-    await context.read<FirebaseService>().catatDataActivity(aksi: perintah, sumber: 'mobile');
+    try {
+      context.read<MqttService>().kirimPerintahRelay(perintah);
+      await context.read<FirebaseService>().catatDataActivity(
+            aksi: perintah,
+            sumber: 'mobile',
+          );
 
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Perintah $perintah terkirim.')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Perintah $perintah terkirim.')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal mengirim perintah: $error')),
+        );
+      }
     }
   }
 
@@ -79,26 +89,39 @@ class _KontrolMonitoringLbsScreenState extends State<KontrolMonitoringLbsScreen>
       appBar: AppBar(title: const Text('Kontrol & Monitoring LBS')),
       body: Consumer<MqttService>(
         builder: (context, mqtt, _) {
-          final lruf = mqtt.statusLRUFail;
-          final comf = mqtt.statusCOMFail;
-          final bisaKirim = mqtt.terhubung && (lruf?.normal ?? false) && (comf?.normal ?? false);
+          final alasan = mqtt.alasanTidakBisaKirim;
+          final bisaKirim = alasan == null;
 
-          return Padding(
+          return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                if (!bisaKirim)
-                  Card(
-                    color: Colors.amber.shade50,
-                    child: const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text(
-                        'Perintah remote tidak dapat dikirim saat ini — periksa status koneksi, '
-                        'LRUFail, dan COMFail di bawah. Eksekusi akhir tetap ditentukan ladder '
-                        'logic PLC (gerbang Hot Line=UNLOCK, LRUFail=NORMAL, COMFail=NORMAL).',
-                      ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.asset(
+                    'assets/images/lbs_control_illustration.png',
+                    height: 160,
+                    width: double.infinity,
+                    cacheWidth: 900,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const SizedBox(
+                      height: 160,
+                      child: Center(
+                          child: Icon(Icons.image_not_supported_outlined)),
                     ),
                   ),
+                ),
+                if (alasan != null) ...[
+                  const SizedBox(height: 16),
+                  Card(
+                    color: Colors.amber.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(alasan),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -119,21 +142,21 @@ class _KontrolMonitoringLbsScreenState extends State<KontrolMonitoringLbsScreen>
                 ),
                 const SizedBox(height: 24),
                 const Divider(),
-                const Text('Status Terkini', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text('Status Terkini',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
                 ListTile(
                   leading: Icon(mqtt.terhubung ? Icons.wifi : Icons.wifi_off),
                   title: const Text('Koneksi MQTT'),
                   trailing: Text(mqtt.terhubung ? 'Terhubung' : 'Terputus'),
                 ),
-                ListTile(
-                  leading: Icon((lruf?.normal ?? false) ? Icons.check_circle : Icons.error, color: (lruf?.normal ?? false) ? Colors.green : Colors.red),
-                  title: const Text('LRUFail'),
-                  trailing: Text((lruf?.normal ?? false) ? 'NORMAL' : 'FAIL'),
+                StatusLinkTile(
+                  label: 'LRUFail',
+                  state: mqtt.lruState,
                 ),
-                ListTile(
-                  leading: Icon((comf?.normal ?? false) ? Icons.check_circle : Icons.error, color: (comf?.normal ?? false) ? Colors.green : Colors.red),
-                  title: const Text('COMFail (estimasi ESP32)'),
-                  trailing: Text((comf?.normal ?? false) ? 'NORMAL' : 'FAIL'),
+                StatusLinkTile(
+                  label: 'COMFail (estimasi ESP32)',
+                  state: mqtt.comState,
+                  subtitle: 'Estimasi dari sisi ESP32',
                 ),
               ],
             ),
@@ -149,7 +172,11 @@ class _TombolKontrol extends StatelessWidget {
   final Color warna;
   final bool aktif;
   final VoidCallback onTap;
-  const _TombolKontrol({required this.label, required this.warna, required this.aktif, required this.onTap});
+  const _TombolKontrol(
+      {required this.label,
+      required this.warna,
+      required this.aktif,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -161,7 +188,8 @@ class _TombolKontrol extends StatelessWidget {
         shape: const CircleBorder(),
         padding: const EdgeInsets.all(28),
       ),
-      child: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      child: Text(label,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
     );
   }
 }

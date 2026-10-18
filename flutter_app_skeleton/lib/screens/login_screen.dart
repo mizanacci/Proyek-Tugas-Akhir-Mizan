@@ -35,7 +35,8 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = false);
 
     if (role == null) {
-      setState(() => _pesanError = 'Login gagal — periksa email/kata sandi, atau akun belum memiliki role terdaftar.');
+      setState(() => _pesanError =
+          'Login gagal — periksa email/kata sandi, atau akun belum memiliki role terdaftar.');
       return;
     }
 
@@ -56,7 +57,13 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/images/scada_mizan_login_background.png', fit: BoxFit.cover),
+          Image.asset(
+            'assets/images/scada_mizan_login_background.png',
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const ColoredBox(
+              color: Colors.blueGrey,
+            ),
+          ),
           ColoredBox(color: Colors.black.withValues(alpha: 0.28)),
           Center(
             child: ConstrainedBox(
@@ -68,37 +75,55 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Image.asset('assets/images/scada_mizan_logo.png', height: 96),
+                      Image.asset(
+                        'assets/images/scada_mizan_logo.png',
+                        height: 96,
+                        cacheHeight: 192,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(
+                          Icons.electric_bolt,
+                          size: 72,
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       const Text(
                         'SCADA Distribusi Listrik',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 24),
                       TextField(
                         controller: _emailController,
-                        decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(
+                            labelText: 'Email', border: OutlineInputBorder()),
                         keyboardType: TextInputType.emailAddress,
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: _passwordController,
-                        decoration: const InputDecoration(labelText: 'Kata Sandi', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(
+                            labelText: 'Kata Sandi',
+                            border: OutlineInputBorder()),
                         obscureText: true,
                       ),
                       const SizedBox(height: 16),
                       if (_pesanError != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
-                          child: Text(_pesanError!, style: const TextStyle(color: Colors.red)),
+                          child: Text(_pesanError!,
+                              style: const TextStyle(color: Colors.red)),
                         ),
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
                           onPressed: _loading ? null : _login,
                           child: _loading
-                              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
                               : const Text('Masuk'),
                         ),
                       ),

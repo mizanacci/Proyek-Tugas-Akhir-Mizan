@@ -8,7 +8,22 @@
     },
     "data_activity": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      "$id": {
+        ".write": "auth != null && !data.exists()",
+        ".validate": "newData.hasChildren(['timestamp','jenis','keterangan'])",
+        "timestamp": {
+          ".validate": "newData.isNumber()"
+        },
+        "jenis": {
+          ".validate": "newData.isString() && (newData.val() == 'PERINTAH' || newData.val() == 'ALARM' || newData.val() == 'STATUS')"
+        },
+        "keterangan": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "$other": {
+          ".validate": true
+        }
+      }
     },
     "settings": {
       ".read": "auth != null",

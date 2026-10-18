@@ -4,7 +4,7 @@
 /// Skema Realtime Database (lihat dokumen 05_Struktur_Workspace.md Bagian 3
 /// untuk penjelasan lengkap):
 ///   /users/<uid>/{email, role, nama}
-///   /data_activity/<pushId>/{timestamp, aksi, oleh_uid, oleh_nama, sumber}
+///   /data_activity/<pushId>/{timestamp, jenis, keterangan, oleh_uid, oleh_nama, sumber}
 ///   /settings/threshold_alarm/{tegangan_min, tegangan_max, arus_max}
 ///   /settings/durasi_timeout
 
@@ -22,14 +22,16 @@ class FirebaseService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final DatabaseReference _db = FirebaseDatabase.instanceFor(
     app: Firebase.app(),
-    databaseURL: 'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
   ).ref();
 
   User? get userSaatIni => _auth.currentUser;
 
   Stream<User?> get perubahanUser => _auth.authStateChanges();
 
-  Future<UserCredential> daftarDenganEmail(String email, String password) async {
+  Future<UserCredential> daftarDenganEmail(
+      String email, String password) async {
     try {
       return await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
@@ -136,28 +138,59 @@ class FirebaseService extends ChangeNotifier {
     return _db.child('scada_data').onValue;
   }
 
-  /// Mencatat satu entri Data Activity — dipanggil setiap kali Operator
-  /// mengirim perintah NO/NC (lihat kontrol_monitoring_lbs_screen.dart).
-  /// aksi: "NO" atau "NC". sumber: "mobile" (dari aplikasi ini).
-  Future<void> catatDataActivity({
-    required String aksi,
-    required String sumber,
+  Future<void> catatEvent({
+    required String jenis,
+    required String keterangan,
+    String? kodeUnik,
   }) async {
     final user = _auth.currentUser;
     if (user == null) return;
 
-    await _db.child('data_activity').push().set({
+    String nama = 'Sistem';
+    if (jenis == 'PERINTAH') {
+      final namaSnapshot = await _db.child('users/${user.uid}/nama').get();
+      nama = namaSnapshot.value as String? ??
+          user.displayName ??
+          user.email ??
+          'tidak diketahui';
+    }
+
+    final data = {
       'timestamp': ServerValue.timestamp,
-      'aksi': aksi,
+      'jenis': jenis,
+      'keterangan': keterangan,
       'oleh_uid': user.uid,
-      'oleh_nama': user.displayName ?? user.email ?? 'tidak diketahui',
-      'sumber': sumber,
-    });
+      'oleh_nama': nama,
+      'sumber': 'mobile',
+    };
+
+    final reference = kodeUnik == null
+        ? _db.child('data_activity').push()
+        : _db.child(
+            'data_activity/evt_${DateTime.now().millisecondsSinceEpoch ~/ 1000}_$kodeUnik',
+          );
+    try {
+      await reference.set(data);
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied' && kodeUnik != null) return;
+      rethrow;
+    }
+  }
+
+  /// Kompatibilitas pemanggil lama untuk pencatatan perintah NO/NC.
+  Future<void> catatDataActivity({
+    required String aksi,
+    required String sumber,
+  }) async {
+    await catatEvent(
+      jenis: 'PERINTAH',
+      keterangan: 'Perintah $aksi dikirim',
+    );
   }
 
   /// Stream entri Data Activity terbaru (untuk layar Data Activity),
   /// diurutkan berdasarkan waktu, dibatasi jumlah agar hemat kuota Spark plan.
-  Stream<DatabaseEvent> streamDataActivity({int batas = 50}) {
+  Stream<DatabaseEvent> streamDataActivity({int batas = 100}) {
     return _db
         .child('data_activity')
         .orderByChild('timestamp')

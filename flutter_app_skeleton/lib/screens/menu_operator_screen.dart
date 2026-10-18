@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/firebase_service.dart';
+import '../services/mqtt_service.dart';
 import '../models/sensor_data.dart';
 import 'monitoring_screen.dart';
 import 'kontrol_monitoring_lbs_screen.dart';
@@ -24,6 +25,7 @@ class MenuOperatorScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              context.read<MqttService>().disconnect();
               await context.read<FirebaseService>().logout();
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
@@ -45,14 +47,17 @@ class MenuOperatorScreen extends StatelessWidget {
             ikon: Icons.monitor_heart_outlined,
             label: 'Monitoring',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MonitoringScreen(bisaKontrol: false, role: UserRole.operator)),
+              MaterialPageRoute(
+                  builder: (_) => const MonitoringScreen(
+                      bisaKontrol: false, role: UserRole.operator)),
             ),
           ),
           _MenuCard(
             ikon: Icons.settings_remote,
             label: 'Kontrol & Monitoring LBS',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const KontrolMonitoringLbsScreen()),
+              MaterialPageRoute(
+                  builder: (_) => const KontrolMonitoringLbsScreen()),
             ),
           ),
           _MenuCard(
@@ -73,7 +78,8 @@ class _MenuCard extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _MenuCard({required this.ikon, required this.label, required this.onTap});
+  const _MenuCard(
+      {required this.ikon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +91,9 @@ class _MenuCard extends StatelessWidget {
           children: [
             Icon(ikon, size: 48),
             const SizedBox(height: 8),
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.center),
+            Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center),
           ],
         ),
       ),

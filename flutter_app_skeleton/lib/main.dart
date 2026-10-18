@@ -8,6 +8,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'services/firebase_service.dart';
 import 'services/mqtt_service.dart';
+import 'services/event_logger.dart';
 import 'screens/login_screen.dart';
 import 'screens/menu_manager_screen.dart';
 import 'screens/menu_operator_screen.dart';
@@ -29,6 +30,11 @@ class ScadaMizanApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => FirebaseService()),
         ChangeNotifierProvider(create: (_) => MqttService()),
+        ProxyProvider2<FirebaseService, MqttService, EventLogger>(
+          update: (_, firebase, mqtt, previous) =>
+              previous ?? EventLogger(firebase, mqtt),
+          dispose: (_, logger) => logger.dispose(),
+        ),
       ],
       child: MaterialApp(
         title: 'SCADA Distribusi Listrik',

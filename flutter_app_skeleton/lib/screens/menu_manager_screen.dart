@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/firebase_service.dart';
+import '../services/mqtt_service.dart';
 import '../models/sensor_data.dart';
 import 'monitoring_screen.dart';
 import 'data_activity_screen.dart';
@@ -23,6 +24,7 @@ class MenuManagerScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              context.read<MqttService>().disconnect();
               await context.read<FirebaseService>().logout();
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
@@ -44,7 +46,9 @@ class MenuManagerScreen extends StatelessWidget {
             ikon: Icons.monitor_heart_outlined,
             label: 'Monitoring',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MonitoringScreen(bisaKontrol: false, role: UserRole.manager)),
+              MaterialPageRoute(
+                  builder: (_) => const MonitoringScreen(
+                      bisaKontrol: false, role: UserRole.manager)),
             ),
           ),
           _MenuCard(
@@ -67,7 +71,8 @@ class _MenuCard extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _MenuCard({required this.ikon, required this.label, required this.onTap});
+  const _MenuCard(
+      {required this.ikon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {

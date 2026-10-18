@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
+import '../config/app_secrets.dart';
 import '../services/mqtt_service.dart';
 import '../services/firebase_service.dart';
 import '../models/sensor_data.dart';
@@ -39,8 +40,8 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       // MQTT tersendiri bila jumlah pengguna bertambah banyak di masa depan.
       final bool isManager = widget.role == UserRole.manager;
       await mqtt.connect(
-        username: isManager ? 'flutter-app-manager' : 'flutter-app-operator',
-        password: isManager ? 'MQQTmizan16!' : 'MQQTmizan17!',
+        username: isManager ? AppSecrets.mqttManagerUsername : AppSecrets.mqttOperatorUsername,
+        password: isManager ? AppSecrets.mqttManagerPassword : AppSecrets.mqttOperatorPassword,
         clientId: 'flutter-${firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch}',
       );
     }

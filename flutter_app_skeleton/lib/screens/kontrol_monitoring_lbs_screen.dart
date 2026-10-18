@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../config/app_secrets.dart';
 import '../services/mqtt_service.dart';
 import '../services/firebase_service.dart';
 
@@ -34,8 +35,8 @@ class _KontrolMonitoringLbsScreenState extends State<KontrolMonitoringLbsScreen>
     if (!mqtt.terhubung) {
       final firebaseUser = context.read<FirebaseService>().userSaatIni;
       await mqtt.connect(
-        username: 'flutter-app-operator',
-        password: 'MQQTmizan17!',
+        username: AppSecrets.mqttOperatorUsername,
+        password: AppSecrets.mqttOperatorPassword,
         clientId: 'flutter-${firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch}',
       );
     }

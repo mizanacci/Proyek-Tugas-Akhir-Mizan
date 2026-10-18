@@ -36,9 +36,9 @@ Untuk prototipe TA dengan satu perangkat ESP32 dan satu aplikasi mobile, batas i
 3. Buat kredensial **terpisah** untuk aplikasi Flutter (disarankan tidak berbagi kredensial yang sama antar-jenis client, agar hak akses/izin topic bisa diatur berbeda bila diperlukan di kemudian hari), misalnya `flutter-app-manager` dan `flutter-app-operator` bila ingin membedakan izin per role.
 4. Catat username + password masing-masing — **password hanya ditampilkan sekali saat dibuat**, simpan dengan aman (jangan commit ke repository Git; lihat catatan `.gitignore` pada dokumen Struktur Workspace).
 5. Isikan kredensial ESP32 ke `MQTT_USERNAME`/`MQTT_PASSWORD` pada `config.h` firmware, dan kredensial Flutter ke service MQTT aplikasi (lihat dokumen 05).
-6. Username = esp32-scada-device, pass = MQQTmizan15! 
-7. Username = flutter-app-manager, pass = MQQTmizan16!
-8. Username = flutter-app-operator, pass = MQQTmizan17!
+6. Username = esp32-scada-device, password disimpan hanya di `firmware_esp32/src/config.h` lokal (file tersebut di-gitignore).
+7. Username = flutter-app-manager, password disimpan di `flutter_app_skeleton/lib/config/app_secrets.dart` lokal (file tersebut di-gitignore).
+8. Username = flutter-app-operator, password disimpan di `flutter_app_skeleton/lib/config/app_secrets.dart` lokal (file tersebut di-gitignore).
 
 ---
 

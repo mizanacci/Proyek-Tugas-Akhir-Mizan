@@ -35,14 +35,35 @@ volatile bool statusComFailEstimasiLokal = false;
 static TaskHandle_t handleTaskAdcModbus = nullptr;
 static TaskHandle_t handleTaskWifiMqtt = nullptr;
 
+#ifdef MODE_DIAG_UART
+static void jalankanDiagUart() {
+  Serial2.begin(MODBUS_BAUDRATE, SERIAL_8N1, PIN_MODBUS_RX2, PIN_MODBUS_TX2);
+  Serial.printf("[DIAG-UART] RX=GPIO%d TX=GPIO%d %d 8N1 - sensor & Modbus dimatikan\n",
+                PIN_MODBUS_RX2, PIN_MODBUS_TX2, MODBUS_BAUDRATE);
+  unsigned long tKirim = 0;
+  for (;;) {
+    if (millis() - tKirim >= 1000) {
+      tKirim = millis();
+      Serial2.print("ESP32-UART-TEST\r\n");
+    }
+    while (Serial2.available()) Serial.printf("%02X ", Serial2.read());
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+#endif
+
 // =============================================================
 // Task Core 1 — ADC + Modbus RTU slave (time-critical)
 // =============================================================
 static void taskAdcModbus(void* parameter) {
+#ifdef MODE_DIAG_UART
+  jalankanDiagUart();
+#else
   sensorsInit();
   modbusSlaveInit();
 
   unsigned long waktuSiklusTerakhir = 0;
+  unsigned int jumlahSiklus = 0;
 
   for (;;) {
     // --- Proses request Modbus RTU masuk — dipanggil tiap iterasi loop,
@@ -61,11 +82,20 @@ static void taskAdcModbus(void* parameter) {
     if (millis() - waktuSiklusTerakhir >= TARGET_SIKLUS_MS) {
       waktuSiklusTerakhir = millis();
 
+      unsigned long mulaiBacaSensor = micros();
       HasilSensor hasil = bacaSemuaSensor();
+      unsigned long durasiBacaSensor = micros() - mulaiBacaSensor;
       modbusUpdateHasilSensor(hasil);
       modbusUpdateLRUFail(statusMqttTerhubung);  // baca status dari Core 0 (volatile bool, aman)
 
       statusComFailEstimasiLokal = modbusEstimasiComFailLokal();
+      if (++jumlahSiklus % 5 == 0) {
+        Serial.printf("[MODBUS] akses terakhir dari PLC: %lu ms lalu | COMFail(estimasi): %s\n",
+                      modbusMsSejakAksesTerakhir(),
+                      statusComFailEstimasiLokal ? "FAIL" : "NORMAL");
+        Serial.printf("[TIMING] bacaSemuaSensor=%.3f ms (target <1000 ms)\n",
+                      durasiBacaSensor / 1000.0f);
+      }
 
       // Kirim salinan hasil ke Core 0 untuk dipublikasikan MQTT.
       // xQueueOverwrite: queue satu-slot, nilai lama (bila belum sempat
@@ -78,6 +108,7 @@ static void taskAdcModbus(void* parameter) {
     // task lain pada core yang sama (jika ada) tetap kebagian waktu CPU.
     vTaskDelay(pdMS_TO_TICKS(5));
   }
+#endif
 }
 
 // =============================================================

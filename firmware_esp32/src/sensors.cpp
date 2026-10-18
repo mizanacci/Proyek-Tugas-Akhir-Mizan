@@ -11,6 +11,14 @@
 
 static Adafruit_ADS1115 ads;
 
+#ifndef BATAS_NOISE_ARUS_A
+#define BATAS_NOISE_ARUS_A 3.0f
+#endif
+
+#ifndef BATAS_TEGANGAN_OFF
+#define BATAS_TEGANGAN_OFF 20.0f
+#endif
+
 static const int PIN_MAP[JUMLAH_SENSOR] = {
   0, // ZMPT sumber -> A0
   1, // ZMPT beban  -> A1
@@ -20,6 +28,7 @@ static const int PIN_MAP[JUMLAH_SENSOR] = {
 
 void sensorsInit() {
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  Wire.setClock(400000);
   ads.setGain(GAIN_ONE);
   ads.setDataRate(RATE_ADS1115_860SPS);
 
@@ -49,7 +58,7 @@ int readRawSensor(SensorId id) {
  * Estimasi offset per batch juga lebih baik daripada hard-code karena
  * offset sensor dapat berubah akibat suhu dan tegangan suplai.
  */
-float hitungRMS(SensorId id) {
+static float hitungRMSDenganDc(SensorId id, float* rataRataDc) {
     float sampel[JUMLAH_SAMPEL_RMS];
     double jumlah = 0.0;
 
@@ -60,6 +69,9 @@ float hitungRMS(SensorId id) {
     }
 
     const float rata_rata = (float)(jumlah / JUMLAH_SAMPEL_RMS);
+    if (rataRataDc != nullptr) {
+      *rataRataDc = rata_rata;
+    }
 
     // Hilangkan komponen DC/bias, kemudian hitung RMS komponen AC.
     double jumlah_kuadrat_ac = 0.0;
@@ -70,6 +82,10 @@ float hitungRMS(SensorId id) {
     }
 
     return sqrt(jumlah_kuadrat_ac / JUMLAH_SAMPEL_RMS);
+}
+
+float hitungRMS(SensorId id) {
+    return hitungRMSDenganDc(id, nullptr);
 }
 
 #define RMS_ADC_MIN_WAJAR (ADC_MAX_VALUE * 0.0001f)
@@ -119,15 +135,27 @@ HasilSensor bacaSemuaSensor() {
   static bool sumber_sudah_ada_data = false;
   static bool beban_sudah_ada_data = false;
 
-#ifdef MODE_UJI_SENSOR_DC_SUMBER
-  float adc_dc_sumber = bacaRataRataSensorDCSumber();
+  float adc_dc_sumber = 0.0f;
+  float rms_zmpt_sumber = 0.0f;
+  float dc_zmpt_sumber = 0.0f;
+  float dc_zmpt_beban = 0.0f;
+  float dc_acs_sumber = 0.0f;
+  float dc_acs_beban = 0.0f;
+#ifdef MODE_DEBUG_SENSOR
+  rms_zmpt_sumber = hitungRMSDenganDc(SENSOR_ZMPT_SUMBER, &dc_zmpt_sumber);
+  float rms_zmpt_beban = hitungRMSDenganDc(SENSOR_ZMPT_BEBAN, &dc_zmpt_beban);
+  float rms_acs_sumber = hitungRMSDenganDc(SENSOR_ACS712_SUMBER, &dc_acs_sumber);
+  float rms_acs_beban  = hitungRMSDenganDc(SENSOR_ACS712_BEBAN, &dc_acs_beban);
 #else
-  float rms_zmpt_sumber = hitungRMS(SENSOR_ZMPT_SUMBER);
-#endif
-
+  #ifdef MODE_UJI_SENSOR_DC_SUMBER
+  adc_dc_sumber = bacaRataRataSensorDCSumber();
+  #else
+  rms_zmpt_sumber = hitungRMS(SENSOR_ZMPT_SUMBER);
+  #endif
   float rms_zmpt_beban = hitungRMS(SENSOR_ZMPT_BEBAN);
   float rms_acs_sumber = hitungRMS(SENSOR_ACS712_SUMBER);
   float rms_acs_beban  = hitungRMS(SENSOR_ACS712_BEBAN);
+#endif
 
 #ifndef MODE_UJI_SENSOR_DC_SUMBER
   if (!nilaiWajar(rms_zmpt_sumber)) hasil.bitmask_kualitas |= (1 << 0);
@@ -147,8 +175,6 @@ HasilSensor bacaSemuaSensor() {
     ZMPT_BEBAN_GAIN * rms_zmpt_beban + ZMPT_BEBAN_OFFSET;
 
   // Deadband untuk menghilangkan residual/noise saat tidak ada AC.
-  const float BATAS_TEGANGAN_OFF = 20.0f;
-
   if (tegangan_sumber_baru < BATAS_TEGANGAN_OFF) {
     tegangan_sumber_baru = 0.0f;
   }
@@ -173,8 +199,13 @@ HasilSensor bacaSemuaSensor() {
       );
 #endif
 
-  // ACS712: konversi RMS-ADC -> mV -> Ampere memakai sensitivitas datasheet
-  // (100 mV/A untuk varian 20A). Referensi 4096 mV mengikuti rentang penuh
+  // ACS712: konversi RMS-ADC -> mV -> Ampere memakai sensitivitas datasheet.
+  // ACS712_MV_PER_AMP = 100.0 (varian 20A @5V) x (Vcc_terukur/5) x
+  // rasio_pembagi_bila_ada. Modul ACS712 bersifat ratiometric: titik nol =
+  // Vcc/2 dan sensitivitas proporsional terhadap Vcc; rentang suplai
+  // terjamin 4,5-5,5 V. Jangan ubah konstanta sebelum Vcc dan tegangan OUT
+  // saat 0 A diukur.
+  // Referensi 4096 mV mengikuti rentang penuh
   // ADS1115 pada pengaturan GAIN_ONE (+/-4,096V, lihat sensorsInit()) —
   // BUKAN 3,3V seperti asumsi ADC bawaan ESP32 sebelumnya. Bila suatu saat
   // setGain() diubah ke pengaturan lain, angka 4096.0f ini WAJIB
@@ -187,13 +218,27 @@ HasilSensor bacaSemuaSensor() {
   float arus_sumber = (rms_acs_sumber * mv_per_langkah) / ACS712_MV_PER_AMP;
   float arus_beban  = (rms_acs_beban  * mv_per_langkah) / ACS712_MV_PER_AMP;
 
-  // Noise floor sementara untuk pengujian tanpa beban.
-  // Nilai ini harus dikalibrasi kembali setelah karakteristik noise
-  // ACS712 + ADS1115 sudah diketahui.
-  const float BATAS_NOISE_ARUS_A = 3.0f;
-
   hasil.arus_sumber = (arus_sumber < BATAS_NOISE_ARUS_A) ? 0.0f : arus_sumber;
   hasil.arus_beban  = (arus_beban  < BATAS_NOISE_ARUS_A) ? 0.0f : arus_beban;
+
+#ifdef MODE_DEBUG_SENSOR
+  static unsigned int jumlahSiklusDebug = 0;
+  if (++jumlahSiklusDebug % 2 == 0) {
+    const float adcKeVolt = 4.096f / ADC_MAX_VALUE;
+    const float adcKeMv = 4096.0f / ADC_MAX_VALUE;
+    Serial.printf("[SENSOR] ZMPT_sumber dc=%.3fV rms=%.1fmV -> %.2fV\n",
+                  dc_zmpt_sumber * adcKeVolt, rms_zmpt_sumber * adcKeMv,
+                  hasil.tegangan_sumber);
+    Serial.printf("[SENSOR] ZMPT_beban dc=%.3fV rms=%.1fmV -> %.2fV\n",
+                  dc_zmpt_beban * adcKeVolt, rms_zmpt_beban * adcKeMv,
+                  hasil.tegangan_beban);
+    Serial.printf("[SENSOR] ACS_sumber dc=%.3fV rms=%.1fmV -> %.2fA\n",
+                  dc_acs_sumber * adcKeVolt, rms_acs_sumber * adcKeMv,
+                  hasil.arus_sumber);
+    Serial.printf("[SENSOR] ACS_beban dc=%.3fV rms=%.1fmV -> %.2fA\n",
+                  dc_acs_beban * adcKeVolt, rms_acs_beban * adcKeMv,
+                  hasil.arus_beban);
+  }
 #endif
 
   return hasil;

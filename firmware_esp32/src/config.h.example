@@ -12,6 +12,8 @@
 
 #define PIN_MODBUS_RX2  16
 #define PIN_MODBUS_TX2  17
+// Panduan wiring menyebut RX=GPIO18, TX=GPIO17; contoh di atas memakai RX=GPIO16.
+// Nilai di config.h harus sama dengan kabel fisik.
 #define MODBUS_BAUDRATE 9600
 #define MODBUS_SLAVE_ID 1
 
@@ -30,6 +32,8 @@
 // Sistem utama menggunakan ZMPT101B AC pada A0/A1.
 // #define MODE_UJI_SENSOR_DC_SUMBER
 #define RASIO_PEMBAGI_SENSOR_DC  5.0f
+// #define MODE_DIAG_UART
+// #define MODE_DEBUG_SENSOR
 
 // Koefisien ZMPT101B adalah placeholder sampai kalibrasi final.
 #define ZMPT_SUMBER_GAIN    0.1f
@@ -41,6 +45,8 @@
 // RMS firmware menghilangkan DC bias secara otomatis dari setiap batch sampel,
 // sehingga tidak lagi mengasumsikan titik tengah = ADC/2.
 #define ACS712_MV_PER_AMP   100.0f
+#define BATAS_NOISE_ARUS_A  3.0f
+#define BATAS_TEGANGAN_OFF  20.0f
 
 #define JUMLAH_SAMPEL_RMS   50
 #define INTERVAL_ADC_US     2000
@@ -57,6 +63,7 @@
 #define TOPIC_DATA_SENSOR   "scada/mizan/data/sensor"
 #define TOPIC_STATUS_LRUF  "scada/mizan/status/lrufail"
 #define TOPIC_STATUS_COMF  "scada/mizan/status/comfail"
+// LWT memakai TOPIC_STATUS_LRUF; TOPIC_STATUS_LWT dipertahankan agar config.h lokal lama valid.
 #define TOPIC_STATUS_LWT   "scada/mizan/status/lwt"
 #define TOPIC_CMD_REMOTE   "scada/mizan/cmd/relay"
 

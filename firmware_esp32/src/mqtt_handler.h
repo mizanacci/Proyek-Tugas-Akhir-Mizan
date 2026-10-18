@@ -7,7 +7,7 @@
  *
  * LRUFail: status ini DITENTUKAN oleh mekanisme Last Will and Testament
  * (LWT) yang didaftarkan client ESP32 ke broker HiveMQ SAAT KONEKSI
- * DIBUAT. Broker akan mempublikasikan pesan LWT ke topic TOPIC_STATUS_LWT
+ * DIBUAT. Broker akan mempublikasikan pesan LWT ke topic TOPIC_STATUS_LRUF
  * secara OTOMATIS jika koneksi client terputus tanpa proses disconnect
  * yang bersih (mis. WiFi mati mendadak, ESP32 restart tanpa sempat
  * mengirim disconnect). Firmware ESP32 sendiri TIDAK mempublikasikan

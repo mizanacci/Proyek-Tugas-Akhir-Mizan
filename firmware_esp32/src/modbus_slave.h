@@ -90,4 +90,9 @@ void modbusTulisPerintahRemote(uint16_t value);
  */
 bool modbusEstimasiComFailLokal();
 
+/**
+ * Mengembalikan durasi sejak akses Modbus RTU valid terakhir dari PLC.
+ */
+unsigned long modbusMsSejakAksesTerakhir();
+
 #endif // MODBUS_SLAVE_H

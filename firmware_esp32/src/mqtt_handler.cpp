@@ -36,6 +36,11 @@ ISI_DENGAN_ISRG_ROOT_X1_DARI_LETSENCRYPT_ORG
 
 static unsigned long waktuReconnectTerakhir = 0;
 #define INTERVAL_RECONNECT_MS 5000
+#define INTERVAL_HEARTBEAT_COMFAIL_MS 5000
+
+static bool comFailTerakhir = false;
+static bool comFailPernahKirim = false;
+static unsigned long waktuKirimComFail = 0;
 
 // --- Callback dipanggil PubSubClient saat pesan masuk dari topic yang di-subscribe ---
 static void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -100,14 +105,14 @@ static void mqttReconnect() {
 
   // LWT (Last Will and Testament): didaftarkan SAAT connect(), bukan
   // dipublikasikan manual. Broker HiveMQ akan otomatis mempublikasikan
-  // pesan ini ke TOPIC_STATUS_LWT jika koneksi client ini terputus tanpa
+  // pesan ini ke TOPIC_STATUS_LRUF jika koneksi client ini terputus tanpa
   // proses disconnect yang bersih — inilah mekanisme deteksi LRUFail.
   const char* pesanLWT = "{\"status\":\"FAIL\",\"source\":\"lwt\"}";
   bool ok = mqttClient.connect(
       MQTT_CLIENT_ID,
       MQTT_USERNAME,
       MQTT_PASSWORD,
-      TOPIC_STATUS_LWT,   // willTopic
+      TOPIC_STATUS_LRUF,  // willTopic
       1,                  // willQos (1 = at-least-once, sesuai kebutuhan status kritikal)
       true,               // willRetain — agar subscriber baru langsung tahu status terakhir
       pesanLWT
@@ -118,7 +123,10 @@ static void mqttReconnect() {
     mqttClient.subscribe(TOPIC_CMD_REMOTE);
     // Publikasikan status NORMAL segera setelah tersambung, menimpa
     // kemungkinan pesan LWT lama yang masih ter-retain dari sesi sebelumnya.
-    mqttClient.publish(TOPIC_STATUS_LWT, "{\"status\":\"NORMAL\",\"source\":\"connect\"}", true);
+    mqttClient.publish(TOPIC_STATUS_LRUF, "{\"status\":\"NORMAL\",\"source\":\"connect\"}", true);
+    // hapus sisa pesan retained di topic lama (aman dibiarkan; boleh dihapus kelak)
+    mqttClient.publish("scada/mizan/status/lwt", (const uint8_t*)"", 0, true);
+    comFailPernahKirim = false;
     statusMqttTerhubung = true;
   } else {
     Serial.print("[MQTT] Gagal terhubung, kode state PubSubClient: ");
@@ -160,8 +168,7 @@ void mqttHandlerTask() {
     mqttPublishDataSensor(hasil);
   }
 
-  // Publikasikan estimasi COMFail sisi ESP32 setiap siklus (nilai dibaca
-  // dari variabel shared, ditulis Core 1 — lihat shared_state.h)
+  // Publikasikan estimasi COMFail sisi ESP32 saat berubah atau heartbeat.
   mqttPublishComFailEstimasi(statusComFailEstimasiLokal);
 }
 
@@ -183,10 +190,18 @@ void mqttPublishDataSensor(const HasilSensor& hasil) {
 
 void mqttPublishComFailEstimasi(bool statusFail) {
   if (!mqttClient.connected()) return;
+  unsigned long now = millis();
+  bool berubah = (!comFailPernahKirim) || (statusFail != comFailTerakhir);
+  bool heartbeat = (now - waktuKirimComFail) >= INTERVAL_HEARTBEAT_COMFAIL_MS;
+  if (!berubah && !heartbeat) return;
+
   const char* payload = statusFail
       ? "{\"status\":\"FAIL\",\"source\":\"esp32_watchdog_estimate\"}"
       : "{\"status\":\"NORMAL\",\"source\":\"esp32_watchdog_estimate\"}";
-  mqttClient.publish(TOPIC_STATUS_COMF, payload);
+  mqttClient.publish(TOPIC_STATUS_COMF, payload, true);
+  comFailTerakhir = statusFail;
+  comFailPernahKirim = true;
+  waktuKirimComFail = now;
 }
 
 bool mqttTerhubung() {

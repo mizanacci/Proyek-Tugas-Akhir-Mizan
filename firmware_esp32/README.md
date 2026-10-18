@@ -13,6 +13,13 @@ Ringkasan desain untuk referensi cepat dan bahan BAB 4. Detail lengkap ada di ko
 | `src/shared_state.h` | Primitif FreeRTOS (queue + volatile bool) untuk komunikasi aman Core 0 ↔ Core 1 |
 | `src/main.cpp` | `setup()`/`loop()`, pembuatan dua task dual-core |
 
+## Topic Status MQTT
+
+| Topic | Perilaku |
+|---|---|
+| `scada/mizan/status/lrufail` | LRUFail/LWT, retained; `NORMAL` dipublikasikan setelah connect dan `FAIL` dikirim broker saat koneksi putus |
+| `scada/mizan/status/comfail` | COMFail estimasi ESP32, retained; dikirim saat status berubah atau heartbeat setiap 5 detik |
+
 ## Peta Register Modbus RTU (Draf — lihat `config.h` untuk nilai definitif)
 
 ESP32 = **slave**, PLC = **master**. Alamat 0-based sesuai konvensi library.
@@ -48,6 +55,14 @@ ADS1115 memakai alamat I2C `0x48`, SDA GPIO8, dan SCL GPIO9. Pemetaan kanal
 adalah A0=ZMPT sumber, A1=ZMPT beban, A2=ACS712 sumber, dan A3=ACS712 beban.
 Format data MQTT tidak berubah. ADS1115 dikonfigurasi pada `GAIN_ONE` dan
 `860 SPS`; kalibrasi sensor wajib diulang setelah migrasi.
+
+## Mode Diagnosis
+
+- `MODE_DIAG_UART` (default nonaktif) menonaktifkan sensor dan Modbus normal,
+  lalu mengirim `ESP32-UART-TEST` tiap detik melalui UART2 dan mencetak byte
+  yang diterima. Gunakan loopback MAX3232 sebelum menghubungkan PLC.
+- `MODE_DEBUG_SENSOR` (default nonaktif) mencetak rata-rata DC, RMS, dan hasil
+  konversi fisik setiap dua siklus pembacaan sensor.
 
 ## Temuan Audit & Perbaikan (setelah migrasi ADS1115 + ESP32-S3)
 

@@ -98,3 +98,7 @@ void modbusTulisPerintahRemote(uint16_t value) {
 bool modbusEstimasiComFailLokal() {
   return (millis() - waktuAksesTerakhir) > AMBANG_WATCHDOG_MS;
 }
+
+unsigned long modbusMsSejakAksesTerakhir() {
+  return millis() - waktuAksesTerakhir;
+}

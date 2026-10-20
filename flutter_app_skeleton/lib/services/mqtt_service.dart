@@ -25,7 +25,10 @@ const String _topicCmdRemote = 'scada/mizan/cmd/relay';
 
 class MqttService extends ChangeNotifier {
   late MqttServerClient _client;
+  bool _clientInitialized = false;
   bool _terhubung = false;
+  String? _pesanKoneksi;
+  String _statusLbs = 'UNKNOWN';
 
   SensorData? dataSensorTerbaru;
   StatusLink? statusLRUFail;
@@ -36,10 +39,37 @@ class MqttService extends ChangeNotifier {
 
   bool get terhubung => _terhubung;
   bool get dataBasi => _dataBasi;
+  String? get pesanKoneksi => _pesanKoneksi;
+  String get statusLbs => _statusLbs;
 
-  LinkState get lruState => statusLRUFail == null
-      ? LinkState.unknown
-      : (statusLRUFail!.normal ? LinkState.normal : LinkState.fail);
+  LinkState get lruState {
+    if (statusLRUFail?.normal == false) return LinkState.fail;
+    if (_terhubung && !_dataBasi && dataSensorTerbaru != null) {
+      return LinkState.normal;
+    }
+    if (_terhubung && _dataBasi) return LinkState.fail;
+    return LinkState.unknown;
+  }
+
+  String get lruStatusMessage {
+    if (!_terhubung) {
+      return 'Aplikasi tidak terhubung ke broker MQTT.';
+    }
+    if (statusLRUFail?.normal == false || _dataBasi) {
+      return 'LRUFail: ESP32 tidak terhubung MQTT; periksa hotspot/gateway.';
+    }
+    return 'ESP32 terhubung ke broker MQTT.';
+  }
+
+  String get comStatusMessage {
+    if (comState == LinkState.fail) {
+      return 'COMFail: ESP32 tidak terhubung atau tidak menerima polling PLC.';
+    }
+    if (comState == LinkState.unknown) {
+      return 'Menunggu status komunikasi ESP32-PLC.';
+    }
+    return 'Komunikasi ESP32-PLC normal.';
+  }
 
   LinkState get comState => statusCOMFail == null
       ? LinkState.unknown
@@ -96,7 +126,16 @@ class MqttService extends ChangeNotifier {
     required String password,
     required String clientId,
   }) async {
+    if (username.trim().isEmpty || password.isEmpty) {
+      _pesanKoneksi =
+          'Kredensial MQTT belum diisi. Buat user Flutter di HiveMQ '
+          'Access Management dan jalankan aplikasi dengan --dart-define.';
+      notifyListeners();
+      return false;
+    }
+
     _client = MqttServerClient.withPort(_mqttHost, clientId, _mqttPort);
+    _clientInitialized = true;
     _client.secure = true;
     _client.securityContext = SecurityContext.defaultContext;
     _client.keepAlivePeriod = 30;
@@ -117,13 +156,19 @@ class MqttService extends ChangeNotifier {
     try {
       await _client.connect();
     } catch (e) {
+      _pesanKoneksi = 'Gagal autentikasi/koneksi MQTT: $e';
       debugPrint('[MQTT] Gagal connect: $e');
       _client.disconnect();
+      _terhubung = false;
+      notifyListeners();
       return false;
     }
 
     if (_client.connectionStatus?.state != MqttConnectionState.connected) {
+      _pesanKoneksi =
+          'Broker menolak koneksi MQTT: ${_client.connectionStatus}';
       debugPrint('[MQTT] Status koneksi gagal: ${_client.connectionStatus}');
+      notifyListeners();
       return false;
     }
 
@@ -133,16 +178,19 @@ class MqttService extends ChangeNotifier {
 
   void _onConnected() {
     _terhubung = true;
+    _pesanKoneksi = null;
     notifyListeners();
     debugPrint('[MQTT] Terhubung.');
   }
 
   void _onDisconnected() {
     _terhubung = false;
+    _pesanKoneksi ??= 'Koneksi MQTT terputus.';
     statusLRUFail = null;
     statusCOMFail = null;
     dataSensorTerbaru = null;
     terakhirDataDiterima = null;
+    _statusLbs = 'UNKNOWN';
     _dataBasi = true;
     notifyListeners();
     debugPrint('[MQTT] Terputus.');
@@ -164,6 +212,12 @@ class MqttService extends ChangeNotifier {
         if (topic == _topicDataSensor) {
           dataSensorTerbaru = SensorData.fromJson(json);
           terakhirDataDiterima = DateTime.now();
+          if (statusLRUFail?.normal != false) {
+            statusLRUFail = StatusLink(
+              normal: true,
+              source: 'sensor_data_received',
+            );
+          }
           if (_dataBasi) _dataBasi = false;
         } else if (topic == _topicStatusLruf) {
           statusLRUFail = StatusLink.fromJson(json);
@@ -186,6 +240,8 @@ class MqttService extends ChangeNotifier {
       return;
     }
     final payload = jsonEncode({'command': perintah});
+    _statusLbs = 'COMMAND_$perintah';
+    notifyListeners();
     final builder = MqttClientPayloadBuilder();
     builder.addString(payload);
     _client.publishMessage(
@@ -196,7 +252,9 @@ class MqttService extends ChangeNotifier {
   }
 
   void disconnect() {
-    _client.disconnect();
+    if (_clientInitialized) {
+      _client.disconnect();
+    }
   }
 
   @override

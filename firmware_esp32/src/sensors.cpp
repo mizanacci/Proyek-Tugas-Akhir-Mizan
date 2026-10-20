@@ -114,6 +114,14 @@ static float bacaRataRataSensorDCSumber() {
 static float filterTegangan(float nilaiBaru, float &nilaiFilter, bool &sudahAdaData) {
   const float ALPHA = 0.20f;
 
+  // Jangan biarkan sisa nilai tegangan AC tetap turun perlahan setelah sumber
+  // diputus. Kondisi tanpa AC harus dipublikasikan sebagai tepat 0 V.
+  if (nilaiBaru <= 0.0f) {
+    nilaiFilter = 0.0f;
+    sudahAdaData = true;
+    return 0.0f;
+  }
+
   if (!sudahAdaData) {
     nilaiFilter = nilaiBaru;
     sudahAdaData = true;
@@ -175,11 +183,11 @@ HasilSensor bacaSemuaSensor() {
     ZMPT_BEBAN_GAIN * rms_zmpt_beban + ZMPT_BEBAN_OFFSET;
 
   // Deadband untuk menghilangkan residual/noise saat tidak ada AC.
-  if (tegangan_sumber_baru < BATAS_TEGANGAN_OFF) {
+  if (tegangan_sumber_baru <= BATAS_TEGANGAN_OFF) {
     tegangan_sumber_baru = 0.0f;
   }
 
-  if (tegangan_beban_baru < BATAS_TEGANGAN_OFF) {
+  if (tegangan_beban_baru <= BATAS_TEGANGAN_OFF) {
     tegangan_beban_baru = 0.0f;
   }
 
@@ -218,8 +226,8 @@ HasilSensor bacaSemuaSensor() {
   float arus_sumber = (rms_acs_sumber * mv_per_langkah) / ACS712_MV_PER_AMP;
   float arus_beban  = (rms_acs_beban  * mv_per_langkah) / ACS712_MV_PER_AMP;
 
-  hasil.arus_sumber = (arus_sumber < BATAS_NOISE_ARUS_A) ? 0.0f : arus_sumber;
-  hasil.arus_beban  = (arus_beban  < BATAS_NOISE_ARUS_A) ? 0.0f : arus_beban;
+  hasil.arus_sumber = (arus_sumber <= BATAS_NOISE_ARUS_A) ? 0.0f : arus_sumber;
+  hasil.arus_beban  = (arus_beban  <= BATAS_NOISE_ARUS_A) ? 0.0f : arus_beban;
 
 #ifdef MODE_DEBUG_SENSOR
   static unsigned int jumlahSiklusDebug = 0;

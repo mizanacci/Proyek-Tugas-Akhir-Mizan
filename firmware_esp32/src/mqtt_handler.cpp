@@ -41,6 +41,7 @@ static unsigned long waktuReconnectTerakhir = 0;
 static bool comFailTerakhir = false;
 static bool comFailPernahKirim = false;
 static unsigned long waktuKirimComFail = 0;
+static unsigned long waktuPublishSensorTerakhir = 0;
 
 // --- Callback dipanggil PubSubClient saat pesan masuk dari topic yang di-subscribe ---
 static void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -164,8 +165,11 @@ void mqttHandlerTask() {
   // Ambil data sensor terbaru dari Core 1 (non-blocking, xQueueReceive
   // dengan timeout 0 — jika belum ada data baru, lewati publish siklus ini)
   HasilSensor hasil;
-  if (xQueueReceive(queueDataSensor, &hasil, 0) == pdTRUE) {
+  if (xQueueReceive(queueDataSensor, &hasil, 0) == pdTRUE &&
+      (waktuPublishSensorTerakhir == 0 ||
+       millis() - waktuPublishSensorTerakhir >= INTERVAL_PUBLISH_SENSOR_MS)) {
     mqttPublishDataSensor(hasil);
+    waktuPublishSensorTerakhir = millis();
   }
 
   // Publikasikan estimasi COMFail sisi ESP32 saat berubah atau heartbeat.

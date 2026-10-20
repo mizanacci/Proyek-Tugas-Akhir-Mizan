@@ -53,7 +53,9 @@ Register `REG_CMD_REMOTE` dirancang dengan pola tulis-baca-tulis-balik (acknowle
 Migrasi dari ADC bawaan ESP32 ke ADS1115 16-bit sudah selesai di firmware.
 ADS1115 memakai alamat I2C `0x48`, SDA GPIO8, dan SCL GPIO9. Pemetaan kanal
 adalah A0=ZMPT sumber, A1=ZMPT beban, A2=ACS712 sumber, dan A3=ACS712 beban.
-Format data MQTT tidak berubah. ADS1115 dikonfigurasi pada `GAIN_ONE` dan
+Format data MQTT tidak berubah. Data sensor dipublikasikan setiap 5 detik
+(lihat `INTERVAL_PUBLISH_SENSOR_MS` di `config.h`), sedangkan pembacaan lokal
+dan register Modbus tetap diperbarui setiap siklus. ADS1115 dikonfigurasi pada `GAIN_ONE` dan
 `860 SPS`; kalibrasi sensor wajib diulang setelah migrasi.
 
 ## Mode Diagnosis
@@ -78,7 +80,9 @@ Empat isu ditemukan lewat pembacaan langsung kode (bukan dari laporan build suks
 ## Asumsi yang Perlu Diverifikasi Sebelum Implementasi Akhir
 
 - Pin UART (GPIO17 TX/GPIO18 RX) — cek terhadap board ESP32-S3 DevKitC-1 fisik yang dipakai (sudah dikonfirmasi bebas dari pin strapping S3: GPIO0/3/45/46, dan bebas dari pin USB native GPIO19/20)
-- Koefisien kalibrasi ZMPT101B (`ZMPT_*_GAIN/OFFSET`) — isi ulang setelah Panduan Kalibrasi (dokumen 02) dijalankan
+- Koefisien kalibrasi ZMPT101B (`ZMPT_*_GAIN/OFFSET`) — nilai awal `0.1700`
+  disesuaikan dari pengujian 220 VAC yang sebelumnya terbaca sekitar 160 V;
+  isi ulang setelah Panduan Kalibrasi (dokumen 02) dijalankan
 - Sensitivitas ACS712 (`ACS712_MV_PER_AMP`, `ACS712_ZERO_OFFSET_MV`) — nilai datasheet nominal, pertimbangkan kalibrasi serupa untuk akurasi lebih baik
 - Nama fungsi callback `onGetIreg`/`onSetHreg` pada `modbus_slave.cpp` — cek terhadap API.md versi library yang benar-benar terpasang
 - Ambang batas watchdog COMFail lokal (`AMBANG_WATCHDOG_MS`) dan ambang kewajaran kualitas data (`RMS_ADC_MIN_WAJAR`/`MAX_WAJAR`) — sesuaikan setelah pengamatan pola polling PLC aktual

@@ -48,17 +48,32 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         builder: (context, mqtt, _) {
           final data = mqtt.dataSensorTerbaru;
           if (!mqtt.terhubung) {
-            return const EmptyState(
+            return EmptyState(
               imageAsset: 'assets/images/empty_mqtt_disconnected.png',
               title: 'Belum terhubung ke server',
-              message: 'Memeriksa koneksi MQTT…',
+              message: mqtt.pesanKoneksi ?? 'Memeriksa koneksi MQTT…',
             );
           }
           if (data == null) {
-            return const EmptyState(
-              imageAsset: 'assets/images/empty_sensor_waiting.png',
-              title: 'Menunggu data sensor',
-              message: 'ESP32 belum mengirim data pertama',
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                const EmptyState(
+                  imageAsset: 'assets/images/empty_sensor_waiting.png',
+                  title: 'Menunggu data sensor',
+                  message: 'ESP32 belum mengirim data pertama',
+                ),
+                StatusLinkTile(
+                  label: 'Koneksi ESP32 ke broker (LRUFail)',
+                  state: mqtt.lruState,
+                  subtitle: mqtt.lruStatusMessage,
+                ),
+                StatusLinkTile(
+                  label: 'Komunikasi Modbus ESP32-PLC (COMFail)',
+                  state: mqtt.comState,
+                  subtitle: mqtt.comStatusMessage,
+                ),
+              ],
             );
           }
 
@@ -97,11 +112,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               StatusLinkTile(
                 label: 'Koneksi ESP32 ke broker (LRUFail)',
                 state: mqtt.lruState,
+                subtitle: mqtt.lruStatusMessage,
               ),
               StatusLinkTile(
                 label: 'Komunikasi Modbus ESP32–PLC (COMFail)',
                 state: mqtt.comState,
-                subtitle: 'Estimasi dari sisi ESP32',
+                subtitle: mqtt.comStatusMessage,
               ),
               Text(
                 'Terakhir diperbarui: ${_formatWaktu(mqtt.terakhirDataDiterima)}',

@@ -56,7 +56,7 @@ TLS pada HiveMQ Cloud **aktif secara default** untuk seluruh cluster (tidak ada 
 
 | Topic | Arah | Isi | QoS Disarankan |
 |---|---|---|---|
-| `scada/mizan/data/sensor` | ESP32 → publish | JSON: `v_sumber`, `v_beban`, `i_sumber`, `i_beban`, `kualitas` (bitmask), `ts` | 0 (data periodik, kehilangan sesekali dapat diterima) |
+| `scada/mizan/data/sensor` | ESP32 → publish setiap 5 detik | JSON: `v_sumber`, `v_beban`, `i_sumber`, `i_beban`, `kualitas` (bitmask), `ts` | 0 (data periodik, kehilangan sesekali dapat diterima) |
 | `scada/mizan/status/lrufail` | Broker → publish otomatis (LWT) + ESP32 publish saat connect | JSON: `status` (`NORMAL`/`FAIL`), `source` | 1 |
 | `scada/mizan/status/comfail` | ESP32 → publish | JSON: `status`, `source: "esp32_watchdog_estimate"` (lihat catatan desain di README firmware — ini estimasi, bukan pembacaan langsung status PLC) | 1 |
 | `scada/mizan/cmd/relay` | Aplikasi (Operator) → publish, ESP32 subscribe | JSON: `{"command":"NO"}` atau `{"command":"NC"}` | 1 (perintah kontrol, disarankan minimal QoS 1 agar terjamin sampai) |

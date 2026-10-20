@@ -34,6 +34,22 @@ Setup awal proyek Flutter (di luar cakupan dokumen ini, ikuti dokumentasi resmi 
 2. `flutterfire configure` untuk menghasilkan `lib/firebase_options.dart` (dan `main.dart` perlu disesuaikan menjadi `Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)` bila FlutterFire CLI dipakai — versi di dokumen ini memakai `Firebase.initializeApp()` tanpa opsi eksplisit sebagai penyederhanaan awal)
 3. `flutter pub get`
 
+Sebelum menjalankan aplikasi, buat user MQTT untuk Manager dan Operator pada
+HiveMQ Cloud > Access Management. Password tidak disimpan di repository;
+berikan saat build/run melalui `--dart-define`, misalnya:
+
+```powershell
+flutter run `
+  --dart-define=MQTT_MANAGER_USERNAME=flutter-app-manager `
+  --dart-define=MQTT_MANAGER_PASSWORD=<password-manager> `
+  --dart-define=MQTT_OPERATOR_USERNAME=flutter-app-operator `
+  --dart-define=MQTT_OPERATOR_PASSWORD=<password-operator>
+```
+
+Jika nilai password belum diberikan, aplikasi sengaja tidak mencoba koneksi
+MQTT dan menampilkan pesan konfigurasi yang jelas. Port `8883` dan hostname
+HiveMQ pada `mqtt_service.dart` harus sama dengan konfigurasi cluster.
+
 ---
 
 ## 2. Struktur Folder Backend Sisi IoT (Firmware)
@@ -75,10 +91,15 @@ Setup awal proyek firmware:
 ├── data_activity/
 │   └── <push_id>/                    # key otomatis dari push(), terurut waktu
 │       ├── timestamp: ServerValue.timestamp
+│       ├── jenis: "PERINTAH" | "ALARM" | "STATUS" | "SCADA_UPDATE"
 │       ├── aksi: "NO" | "NC"
 │       ├── oleh_uid: string
 │       ├── oleh_nama: string
-│       └── sumber: "mobile"          # dibedakan dari "hmi"/"lokal" bila kelak log gabungan diperlukan
+│       ├── sumber: "mobile" | "mqtt"
+│       ├── v_sumber, v_beban: number  # hanya SCADA_UPDATE
+│       ├── i_sumber, i_beban: number  # hanya SCADA_UPDATE
+│       ├── kualitas: number           # bitmask kualitas sensor
+│       └── status_lru, status_com, status_lbs: string
 │
 └── settings/
     ├── threshold_alarm/
@@ -90,7 +111,13 @@ Setup awal proyek firmware:
 
 **Catatan skema:**
 - `users/<uid>/role` dibaca saat login (`firebase_service.dart`) untuk menentukan routing Manager/Operator — dokumen user harus dibuat **manual** oleh admin/pembimbing saat akun baru dibuat di Firebase Authentication Console (tidak ada layar pendaftaran mandiri di aplikasi ini, sesuai cakupan prototipe TA).
-- `data_activity` hanya mencatat perintah yang **dikirim** dari aplikasi mobile, bukan konfirmasi eksekusi ladder logic PLC — lihat catatan di `kontrol_monitoring_lbs_screen.dart` soal potensi kebutuhan field status eksekusi terpisah.
+- `data_activity` mencatat perintah, alarm/status, dan snapshot sensor MQTT
+  otomatis setiap 10 detik selama pengguna login dan data sensor tersedia.
+  Pencatatan tetap dilakukan walaupun COMFail bernilai FAIL; status tersebut
+  disimpan sebagai bagian dari snapshot, bukan sebagai syarat penyimpanan.
+  `status_lbs` merepresentasikan perintah LBS terakhir dari aplikasi, bukan
+  konfirmasi eksekusi ladder logic PLC; konfirmasi aktual membutuhkan topic
+  status LBS terpisah dari firmware.
 - `settings/threshold_alarm` dan `durasi_timeout` disediakan skemanya, tapi **layar pengaturan (Setting Threshold Alarm/Setting Durasi Timeout) belum dibuat** pada struktur Deliverable 5 ini — service `firebase_service.dart` sudah punya fungsi baca/tulisnya (`ambilThresholdAlarm`, `simpanThresholdAlarm`, dst.), tinggal dibuatkan layar UI-nya bila diperlukan untuk BAB 4.
 
 ---

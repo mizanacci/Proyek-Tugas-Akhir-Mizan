@@ -152,11 +152,12 @@ class _KontrolMonitoringLbsScreenState
                 StatusLinkTile(
                   label: 'LRUFail',
                   state: mqtt.lruState,
+                  subtitle: mqtt.lruStatusMessage,
                 ),
                 StatusLinkTile(
                   label: 'COMFail (estimasi ESP32)',
                   state: mqtt.comState,
-                  subtitle: 'Estimasi dari sisi ESP32',
+                  subtitle: mqtt.comStatusMessage,
                 ),
               ],
             ),

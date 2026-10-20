@@ -9,6 +9,7 @@ class EventLogger {
   final MqttService _mqttService;
   late final StreamSubscription<dynamic> _authSubscription;
   late final VoidCallback _mqttListener;
+  late final Timer _snapshotTimer;
   bool _aktif = false;
   LinkState _lruSebelumnya = LinkState.unknown;
   LinkState _comSebelumnya = LinkState.unknown;
@@ -20,7 +21,36 @@ class EventLogger {
       _aktif = user != null;
       _lruSebelumnya = LinkState.unknown;
       _comSebelumnya = LinkState.unknown;
+      if (_aktif) {
+        unawaited(_catatSnapshotScada());
+      }
     });
+    _snapshotTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      unawaited(_catatSnapshotScada());
+    });
+  }
+
+  Future<void> _catatSnapshotScada() async {
+    if (!_aktif || _mqttService.dataSensorTerbaru == null) return;
+
+    try {
+      await _firebaseService.catatSnapshotScada(
+        data: _mqttService.dataSensorTerbaru!,
+        statusLru: _namaStatus(_mqttService.lruState),
+        statusCom: _namaStatus(_mqttService.comState),
+        statusLbs: _mqttService.statusLbs,
+      );
+    } catch (error) {
+      debugPrint('[Firebase] Gagal menyimpan snapshot SCADA: $error');
+    }
+  }
+
+  String _namaStatus(LinkState state) {
+    return switch (state) {
+      LinkState.normal => 'NORMAL',
+      LinkState.fail => 'FAIL',
+      LinkState.unknown => 'UNKNOWN',
+    };
   }
 
   void _periksaPerubahan() {
@@ -68,6 +98,7 @@ class EventLogger {
   }
 
   void dispose() {
+    _snapshotTimer.cancel();
     _mqttService.removeListener(_mqttListener);
     _authSubscription.cancel();
   }

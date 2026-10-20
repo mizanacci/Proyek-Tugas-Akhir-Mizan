@@ -15,7 +15,7 @@
           ".validate": "newData.isNumber()"
         },
         "jenis": {
-          ".validate": "newData.isString() && (newData.val() == 'PERINTAH' || newData.val() == 'ALARM' || newData.val() == 'STATUS')"
+          ".validate": "newData.isString() && (newData.val() == 'PERINTAH' || newData.val() == 'ALARM' || newData.val() == 'STATUS' || newData.val() == 'SCADA_UPDATE')"
         },
         "keterangan": {
           ".validate": "newData.isString() && newData.val().length <= 200"

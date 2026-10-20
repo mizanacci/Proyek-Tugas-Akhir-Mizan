@@ -76,7 +76,11 @@ class DataActivityScreen extends StatelessWidget {
                 DataColumn(label: Text('No')),
                 DataColumn(label: Text('Tanggal')),
                 DataColumn(label: Text('Waktu')),
-                DataColumn(label: Text('Alarm/Status')),
+                DataColumn(label: Text('Jenis')),
+                DataColumn(label: Text('Tegangan (V)')),
+                DataColumn(label: Text('Arus (A)')),
+                DataColumn(label: Text('Status')),
+                DataColumn(label: Text('Keterangan')),
               ],
               rows: [
                 for (var index = 0; index < entries.length; index++)
@@ -106,9 +110,13 @@ class DataActivityScreen extends StatelessWidget {
         DataCell(Text('$number')),
         DataCell(Text(DateFormat('dd/MM/yyyy').format(waktu))),
         DataCell(Text(DateFormat('HH:mm:ss').format(waktu))),
+        DataCell(Text(jenis)),
+        DataCell(Text(_nilaiScada(item, 'v_sumber', 'v_beban'))),
+        DataCell(Text(_nilaiScada(item, 'i_sumber', 'i_beban'))),
+        DataCell(Text(_statusScada(item))),
         DataCell(
           SizedBox(
-            width: 360,
+            width: 420,
             child: Text(keterangan),
           ),
         ),
@@ -134,5 +142,21 @@ class DataActivityScreen extends StatelessWidget {
       return '$keterangan${nama == null ? '' : ' — oleh $nama'}';
     }
     return keterangan;
+  }
+
+  static String _nilaiScada(
+      Map<String, dynamic> item, String sumber, String beban) {
+    final sumberValue = item[sumber];
+    final bebanValue = item[beban];
+    if (sumberValue is! num || bebanValue is! num) return '-';
+    return 'S: ${sumberValue.toStringAsFixed(2)} | '
+        'B: ${bebanValue.toStringAsFixed(2)}';
+  }
+
+  static String _statusScada(Map<String, dynamic> item) {
+    if (item['jenis'] != 'SCADA_UPDATE') return '-';
+    return 'LRU: ${item['status_lru'] ?? 'UNKNOWN'} | '
+        'COM: ${item['status_com'] ?? 'UNKNOWN'} | '
+        'LBS: ${item['status_lbs'] ?? 'UNKNOWN'}';
   }
 }

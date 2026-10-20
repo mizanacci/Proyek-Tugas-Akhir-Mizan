@@ -188,6 +188,37 @@ class FirebaseService extends ChangeNotifier {
     );
   }
 
+  Future<void> catatSnapshotScada({
+    required SensorData data,
+    required String statusLru,
+    required String statusCom,
+    required String statusLbs,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('Pengguna belum login ke Firebase.');
+    }
+
+    final dataSnapshot = {
+      'timestamp': ServerValue.timestamp,
+      'jenis': 'SCADA_UPDATE',
+      'keterangan': 'Pembaruan data SCADA otomatis setiap 10 detik',
+      'oleh_uid': user.uid,
+      'oleh_nama': 'Sistem',
+      'sumber': 'mqtt',
+      'v_sumber': data.teganganSumber,
+      'v_beban': data.teganganBeban,
+      'i_sumber': data.arusSumber,
+      'i_beban': data.arusBeban,
+      'kualitas': data.bitmaskKualitas,
+      'status_lru': statusLru,
+      'status_com': statusCom,
+      'status_lbs': statusLbs,
+    };
+
+    await _db.child('data_activity').push().set(dataSnapshot);
+  }
+
   /// Stream entri Data Activity terbaru (untuk layar Data Activity),
   /// diurutkan berdasarkan waktu, dibatasi jumlah agar hemat kuota Spark plan.
   Stream<DatabaseEvent> streamDataActivity({int batas = 100}) {

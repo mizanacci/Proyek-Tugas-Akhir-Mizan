@@ -37,8 +37,9 @@ static TaskHandle_t handleTaskWifiMqtt = nullptr;
 
 #ifdef MODE_DIAG_UART
 static void jalankanDiagUart() {
-  Serial2.begin(MODBUS_BAUDRATE, SERIAL_8N1, PIN_MODBUS_RX2, PIN_MODBUS_TX2);
-  Serial.printf("[DIAG-UART] RX=GPIO%d TX=GPIO%d %d 8N1 - sensor & Modbus dimatikan\n",
+  Serial2.begin(MODBUS_BAUDRATE, MODBUS_SERIAL_CONFIG,
+                PIN_MODBUS_RX2, PIN_MODBUS_TX2);
+  Serial.printf("[DIAG-UART] RX=GPIO%d TX=GPIO%d %d - sensor & Modbus dimatikan\n",
                 PIN_MODBUS_RX2, PIN_MODBUS_TX2, MODBUS_BAUDRATE);
   unsigned long tKirim = 0;
   for (;;) {
@@ -90,7 +91,8 @@ static void taskAdcModbus(void* parameter) {
 
       statusComFailEstimasiLokal = modbusEstimasiComFailLokal();
       if (++jumlahSiklus % 5 == 0) {
-        Serial.printf("[MODBUS] akses terakhir dari PLC: %lu ms lalu | COMFail(estimasi): %s\n",
+        Serial.printf("[MODBUS] akses=%lu, terakhir %lu ms lalu | COMFail(estimasi): %s\n",
+                      modbusJumlahAksesRegister(),
                       modbusMsSejakAksesTerakhir(),
                       statusComFailEstimasiLokal ? "FAIL" : "NORMAL");
         Serial.printf("[TIMING] bacaSemuaSensor=%.3f ms (target <1000 ms)\n",

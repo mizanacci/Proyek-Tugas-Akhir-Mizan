@@ -11,6 +11,7 @@ class EventLogger {
   late final VoidCallback _mqttListener;
   late final Timer _snapshotTimer;
   bool _aktif = false;
+  bool _snapshotSedangDitulis = false;
   LinkState _lruSebelumnya = LinkState.unknown;
   LinkState _comSebelumnya = LinkState.unknown;
 
@@ -22,7 +23,11 @@ class EventLogger {
       _lruSebelumnya = LinkState.unknown;
       _comSebelumnya = LinkState.unknown;
       if (_aktif) {
+        debugPrint('[Firebase] Auth aktif; EventLogger siap.');
         unawaited(_catatSnapshotScada());
+      } else {
+        debugPrint(
+            '[Firebase] Tidak ada user aktif; EventLogger menunggu login.');
       }
     });
     _snapshotTimer = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -31,8 +36,13 @@ class EventLogger {
   }
 
   Future<void> _catatSnapshotScada() async {
-    if (!_aktif || _mqttService.dataSensorTerbaru == null) return;
+    if (!_aktif ||
+        _mqttService.dataSensorTerbaru == null ||
+        _snapshotSedangDitulis) {
+      return;
+    }
 
+    _snapshotSedangDitulis = true;
     try {
       await _firebaseService.catatSnapshotScada(
         data: _mqttService.dataSensorTerbaru!,
@@ -40,8 +50,14 @@ class EventLogger {
         statusCom: _namaStatus(_mqttService.comState),
         statusLbs: _mqttService.statusLbs,
       );
+      debugPrint(
+        '[Firebase] Snapshot SCADA berhasil ditulis '
+        '(total: ${_firebaseService.jumlahSnapshotBerhasil}).',
+      );
     } catch (error) {
       debugPrint('[Firebase] Gagal menyimpan snapshot SCADA: $error');
+    } finally {
+      _snapshotSedangDitulis = false;
     }
   }
 

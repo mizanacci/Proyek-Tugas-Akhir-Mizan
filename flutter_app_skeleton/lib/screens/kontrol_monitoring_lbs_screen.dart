@@ -63,7 +63,20 @@ class _KontrolMonitoringLbsScreenState
     if (konfirmasi != true || !context.mounted) return;
 
     try {
-      context.read<MqttService>().kirimPerintahRelay(perintah);
+      final mqtt = context.read<MqttService>();
+      if (!mqtt.kirimPerintahRelay(perintah)) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                mqtt.alasanTidakBisaKirim ??
+                    'Perintah tidak dapat dikirim saat ini.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
       await context.read<FirebaseService>().catatDataActivity(
             aksi: perintah,
             sumber: 'mobile',
@@ -144,10 +157,20 @@ class _KontrolMonitoringLbsScreenState
                 const Divider(),
                 const Text('Status Terkini',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                ListTile(
-                  leading: Icon(mqtt.terhubung ? Icons.wifi : Icons.wifi_off),
-                  title: const Text('Koneksi MQTT'),
-                  trailing: Text(mqtt.terhubung ? 'Terhubung' : 'Terputus'),
+                StatusLinkTile(
+                  label: 'Koneksi aplikasi ke HiveMQ',
+                  state: mqtt.koneksiAplikasiState,
+                  subtitle: mqtt.koneksiAplikasiMessage,
+                ),
+                StatusLinkTile(
+                  label: 'Koneksi ESP32 ke MQTT',
+                  state: mqtt.lruState,
+                  subtitle: mqtt.koneksiPerangkatMessage,
+                ),
+                StatusLinkTile(
+                  label: 'Status koneksi sistem',
+                  state: mqtt.statusKoneksiSistemState,
+                  subtitle: mqtt.statusKoneksiSistemMessage,
                 ),
                 StatusLinkTile(
                   label: 'LRUFail',

@@ -12,7 +12,7 @@
 static Adafruit_ADS1115 ads;
 
 #ifndef BATAS_NOISE_ARUS_A
-#define BATAS_NOISE_ARUS_A 3.0f
+#define BATAS_NOISE_ARUS_A 0.10f
 #endif
 
 #ifndef BATAS_TEGANGAN_OFF
@@ -58,19 +58,35 @@ int readRawSensor(SensorId id) {
  * Estimasi offset per batch juga lebih baik daripada hard-code karena
  * offset sensor dapat berubah akibat suhu dan tegangan suplai.
  */
-static float hitungRMSDenganDc(SensorId id, float* rataRataDc) {
+static float hitungRMSDenganDc(
+    SensorId id,
+    float* rataRataDc,
+    int* nilaiMinimum,
+    int* nilaiMaksimum
+) {
     float sampel[JUMLAH_SAMPEL_RMS];
     double jumlah = 0.0;
+    int minimum = INT_MAX;
+    int maksimum = INT_MIN;
 
     // Ambil seluruh sampel dan hitung rata-rata DC/bias.
     for (int i = 0; i < JUMLAH_SAMPEL_RMS; i++) {
-        sampel[i] = (float)readRawSensor(id);
+        const int raw = readRawSensor(id);
+        sampel[i] = (float)raw;
+        minimum = min(minimum, raw);
+        maksimum = max(maksimum, raw);
         jumlah += sampel[i];
     }
 
     const float rata_rata = (float)(jumlah / JUMLAH_SAMPEL_RMS);
     if (rataRataDc != nullptr) {
       *rataRataDc = rata_rata;
+    }
+    if (nilaiMinimum != nullptr) {
+      *nilaiMinimum = minimum;
+    }
+    if (nilaiMaksimum != nullptr) {
+      *nilaiMaksimum = maksimum;
     }
 
     // Hilangkan komponen DC/bias, kemudian hitung RMS komponen AC.
@@ -85,7 +101,7 @@ static float hitungRMSDenganDc(SensorId id, float* rataRataDc) {
 }
 
 float hitungRMS(SensorId id) {
-    return hitungRMSDenganDc(id, nullptr);
+    return hitungRMSDenganDc(id, nullptr, nullptr, nullptr);
 }
 
 #define RMS_ADC_MIN_WAJAR (ADC_MAX_VALUE * 0.0001f)
@@ -149,11 +165,27 @@ HasilSensor bacaSemuaSensor() {
   float dc_zmpt_beban = 0.0f;
   float dc_acs_sumber = 0.0f;
   float dc_acs_beban = 0.0f;
+  int min_zmpt_sumber = 0;
+  int max_zmpt_sumber = 0;
+  int min_zmpt_beban = 0;
+  int max_zmpt_beban = 0;
+  int min_acs_sumber = 0;
+  int max_acs_sumber = 0;
+  int min_acs_beban = 0;
+  int max_acs_beban = 0;
 #ifdef MODE_DEBUG_SENSOR
-  rms_zmpt_sumber = hitungRMSDenganDc(SENSOR_ZMPT_SUMBER, &dc_zmpt_sumber);
-  float rms_zmpt_beban = hitungRMSDenganDc(SENSOR_ZMPT_BEBAN, &dc_zmpt_beban);
-  float rms_acs_sumber = hitungRMSDenganDc(SENSOR_ACS712_SUMBER, &dc_acs_sumber);
-  float rms_acs_beban  = hitungRMSDenganDc(SENSOR_ACS712_BEBAN, &dc_acs_beban);
+  rms_zmpt_sumber = hitungRMSDenganDc(
+      SENSOR_ZMPT_SUMBER, &dc_zmpt_sumber,
+      &min_zmpt_sumber, &max_zmpt_sumber);
+  float rms_zmpt_beban = hitungRMSDenganDc(
+      SENSOR_ZMPT_BEBAN, &dc_zmpt_beban,
+      &min_zmpt_beban, &max_zmpt_beban);
+  float rms_acs_sumber = hitungRMSDenganDc(
+      SENSOR_ACS712_SUMBER, &dc_acs_sumber,
+      &min_acs_sumber, &max_acs_sumber);
+  float rms_acs_beban = hitungRMSDenganDc(
+      SENSOR_ACS712_BEBAN, &dc_acs_beban,
+      &min_acs_beban, &max_acs_beban);
 #else
   #ifdef MODE_UJI_SENSOR_DC_SUMBER
   adc_dc_sumber = bacaRataRataSensorDCSumber();
@@ -234,16 +266,26 @@ HasilSensor bacaSemuaSensor() {
   if (++jumlahSiklusDebug % 2 == 0) {
     const float adcKeVolt = 4.096f / ADC_MAX_VALUE;
     const float adcKeMv = 4096.0f / ADC_MAX_VALUE;
-    Serial.printf("[SENSOR] ZMPT_sumber dc=%.3fV rms=%.1fmV -> %.2fV\n",
+    Serial.printf("[SENSOR] ZMPT_sumber raw=%d..%d dc=%.3fV rms=%.1fmV "
+                  "pre=%.2fV post=%.2fV\n",
+                  min_zmpt_sumber, max_zmpt_sumber,
                   dc_zmpt_sumber * adcKeVolt, rms_zmpt_sumber * adcKeMv,
+                  ZMPT_SUMBER_GAIN * rms_zmpt_sumber + ZMPT_SUMBER_OFFSET,
                   hasil.tegangan_sumber);
-    Serial.printf("[SENSOR] ZMPT_beban dc=%.3fV rms=%.1fmV -> %.2fV\n",
+    Serial.printf("[SENSOR] ZMPT_beban raw=%d..%d dc=%.3fV rms=%.1fmV "
+                  "pre=%.2fV post=%.2fV\n",
+                  min_zmpt_beban, max_zmpt_beban,
                   dc_zmpt_beban * adcKeVolt, rms_zmpt_beban * adcKeMv,
+                  ZMPT_BEBAN_GAIN * rms_zmpt_beban + ZMPT_BEBAN_OFFSET,
                   hasil.tegangan_beban);
-    Serial.printf("[SENSOR] ACS_sumber dc=%.3fV rms=%.1fmV -> %.2fA\n",
+    Serial.printf("[SENSOR] ACS_sumber raw=%d..%d dc=%.3fV rms=%.1fmV "
+                  "-> %.2fA\n",
+                  min_acs_sumber, max_acs_sumber,
                   dc_acs_sumber * adcKeVolt, rms_acs_sumber * adcKeMv,
                   hasil.arus_sumber);
-    Serial.printf("[SENSOR] ACS_beban dc=%.3fV rms=%.1fmV -> %.2fA\n",
+    Serial.printf("[SENSOR] ACS_beban raw=%d..%d dc=%.3fV rms=%.1fmV "
+                  "-> %.2fA\n",
+                  min_acs_beban, max_acs_beban,
                   dc_acs_beban * adcKeVolt, rms_acs_beban * adcKeMv,
                   hasil.arus_beban);
   }

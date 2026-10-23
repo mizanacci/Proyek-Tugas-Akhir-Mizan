@@ -25,8 +25,18 @@ class FirebaseService extends ChangeNotifier {
     databaseURL:
         'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
   ).ref();
+  DateTime? _terakhirUpayaTulis;
+  bool? _hasilTulisTerakhir;
+  String? _errorTerakhirDatabase;
+  int _jumlahSnapshotBerhasil = 0;
+  int _jumlahCatatanStreamTerakhir = 0;
 
   User? get userSaatIni => _auth.currentUser;
+  DateTime? get terakhirUpayaTulis => _terakhirUpayaTulis;
+  bool? get hasilTulisTerakhir => _hasilTulisTerakhir;
+  String? get errorTerakhirDatabase => _errorTerakhirDatabase;
+  int get jumlahSnapshotBerhasil => _jumlahSnapshotBerhasil;
+  int get jumlahCatatanStreamTerakhir => _jumlahCatatanStreamTerakhir;
 
   Stream<User?> get perubahanUser => _auth.authStateChanges();
 
@@ -115,6 +125,7 @@ class FirebaseService extends ChangeNotifier {
         return null;
       }
       final roleStr = snapshot.value as String;
+      debugPrint('[Firebase] Login berhasil; role=$roleStr.');
       return roleStr == 'manager' ? UserRole.manager : UserRole.operator;
     } on FirebaseAuthException catch (e) {
       debugPrint('[Firebase] Login gagal: ${e.code}');
@@ -194,8 +205,12 @@ class FirebaseService extends ChangeNotifier {
     required String statusCom,
     required String statusLbs,
   }) async {
+    _terakhirUpayaTulis = DateTime.now();
+    _hasilTulisTerakhir = null;
     final user = _auth.currentUser;
     if (user == null) {
+      _hasilTulisTerakhir = false;
+      _errorTerakhirDatabase = 'Pengguna belum login ke Firebase.';
       throw StateError('Pengguna belum login ke Firebase.');
     }
 
@@ -216,7 +231,21 @@ class FirebaseService extends ChangeNotifier {
       'status_lbs': statusLbs,
     };
 
-    await _db.child('data_activity').push().set(dataSnapshot);
+    try {
+      await _db.child('data_activity').push().set(dataSnapshot);
+      _hasilTulisTerakhir = true;
+      _errorTerakhirDatabase = null;
+      _jumlahSnapshotBerhasil++;
+    } on FirebaseException catch (error) {
+      _hasilTulisTerakhir = false;
+      _errorTerakhirDatabase =
+          'Firebase ${error.code}: ${error.message ?? 'tanpa pesan'}';
+      rethrow;
+    } catch (error) {
+      _hasilTulisTerakhir = false;
+      _errorTerakhirDatabase = error.toString();
+      rethrow;
+    }
   }
 
   /// Stream entri Data Activity terbaru (untuk layar Data Activity),
@@ -226,7 +255,16 @@ class FirebaseService extends ChangeNotifier {
         .child('data_activity')
         .orderByChild('timestamp')
         .limitToLast(batas)
-        .onValue;
+        .onValue
+        .map((event) {
+      final value = event.snapshot.value;
+      _jumlahCatatanStreamTerakhir = value is Map ? value.length : 0;
+      debugPrint(
+        '[Firebase] Stream data_activity menerima '
+        '$_jumlahCatatanStreamTerakhir catatan.',
+      );
+      return event;
+    });
   }
 
   Future<Map<String, dynamic>?> ambilThresholdAlarm() async {

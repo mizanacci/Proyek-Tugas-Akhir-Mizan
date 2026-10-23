@@ -24,13 +24,23 @@ class SensorData {
   });
 
   factory SensorData.fromJson(Map<String, dynamic> json) {
+    num angka(String nama) {
+      final value = json[nama];
+      if (value is! num || !value.isFinite) {
+        throw FormatException(
+          'Field sensor "$nama" harus berupa angka finite.',
+        );
+      }
+      return value;
+    }
+
     return SensorData(
-      teganganSumber: (json['v_sumber'] as num).toDouble(),
-      teganganBeban: (json['v_beban'] as num).toDouble(),
-      arusSumber: (json['i_sumber'] as num).toDouble(),
-      arusBeban: (json['i_beban'] as num).toDouble(),
-      bitmaskKualitas: (json['kualitas'] as num).toInt(),
-      timestampMs: (json['ts'] as num).toInt(),
+      teganganSumber: angka('v_sumber').toDouble(),
+      teganganBeban: angka('v_beban').toDouble(),
+      arusSumber: angka('i_sumber').toDouble(),
+      arusBeban: angka('i_beban').toDouble(),
+      bitmaskKualitas: angka('kualitas').toInt(),
+      timestampMs: angka('ts').toInt(),
     );
   }
 
@@ -41,6 +51,35 @@ class SensorData {
 }
 
 enum LinkState { unknown, normal, fail }
+
+enum SystemConnectionState {
+  disconnected,
+  deviceOffline,
+  waitingDevice,
+  degraded,
+  connected,
+}
+
+SystemConnectionState resolveSystemConnectionState({
+  required bool applicationConnected,
+  required LinkState lruState,
+  required LinkState comState,
+  required bool dataStale,
+}) {
+  if (!applicationConnected) return SystemConnectionState.disconnected;
+  if (lruState == LinkState.fail || dataStale) {
+    return SystemConnectionState.deviceOffline;
+  }
+  if (lruState == LinkState.unknown) {
+    return SystemConnectionState.waitingDevice;
+  }
+  if (comState == LinkState.fail) {
+    return SystemConnectionState.degraded;
+  }
+  return comState == LinkState.unknown
+      ? SystemConnectionState.waitingDevice
+      : SystemConnectionState.connected;
+}
 
 /// Status NORMAL/FAIL generik — dipakai untuk LRUFail maupun estimasi COMFail.
 class StatusLink {

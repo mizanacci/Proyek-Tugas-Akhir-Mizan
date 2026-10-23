@@ -23,12 +23,14 @@ class DataActivityScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
                 child: Text(
-                  'Data Activity tidak dapat dibaca. Pastikan sudah login dan '
-                  'Security Rules Firebase sudah dipublikasikan.',
+                  'Data Activity tidak dapat dibaca.\n\n'
+                  '${snapshot.error}\n\n'
+                  'Pastikan user sudah login dan Security Rules Firebase '
+                  'sudah dipublikasikan.',
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -41,14 +43,24 @@ class DataActivityScreen extends StatelessWidget {
                 padding: EdgeInsets.all(24),
                 child: Text(
                   'Belum ada riwayat. Riwayat tercatat saat perintah dikirim '
-                  'atau status LRUFail/COMFail berubah.',
+                  'atau status LRUFail/COMFail berubah. Pastikan snapshot '
+                  'SCADA sudah berhasil ditulis oleh aplikasi.',
                   textAlign: TextAlign.center,
                 ),
               ),
             );
           }
 
-          final raw = Map<dynamic, dynamic>.from(value as Map);
+          if (value is! Map) {
+            return const Center(
+              child: Text(
+                'Format data_activity tidak valid di Firebase.',
+                textAlign: TextAlign.center,
+              ),
+            );
+          }
+
+          final raw = Map<dynamic, dynamic>.from(value);
           final entries = raw.values
               .whereType<Map>()
               .map((item) => Map<String, dynamic>.from(item))

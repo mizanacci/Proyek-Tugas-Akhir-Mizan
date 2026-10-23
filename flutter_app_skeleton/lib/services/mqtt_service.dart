@@ -29,6 +29,9 @@ class MqttService extends ChangeNotifier {
   bool _terhubung = false;
   String? _pesanKoneksi;
   String _statusLbs = 'UNKNOWN';
+  String? _errorTerakhir;
+  int _jumlahPayloadSensorDiterima = 0;
+  int _jumlahPayloadSensorDiproses = 0;
 
   SensorData? dataSensorTerbaru;
   StatusLink? statusLRUFail;
@@ -41,21 +44,77 @@ class MqttService extends ChangeNotifier {
   bool get dataBasi => _dataBasi;
   String? get pesanKoneksi => _pesanKoneksi;
   String get statusLbs => _statusLbs;
+  String? get errorTerakhir => _errorTerakhir;
+  int get jumlahPayloadSensorDiterima => _jumlahPayloadSensorDiterima;
+  int get jumlahPayloadSensorDiproses => _jumlahPayloadSensorDiproses;
+  List<String> get topicDilanggani => const [
+        _topicDataSensor,
+        _topicStatusLruf,
+        _topicStatusComf,
+      ];
+  LinkState get koneksiAplikasiState =>
+      _terhubung ? LinkState.normal : LinkState.fail;
+
+  SystemConnectionState get statusKoneksiSistem => resolveSystemConnectionState(
+        applicationConnected: _terhubung,
+        lruState: lruState,
+        comState: comState,
+        dataStale: _dataBasi,
+      );
+
+  LinkState get statusKoneksiSistemState {
+    return switch (statusKoneksiSistem) {
+      SystemConnectionState.connected => LinkState.normal,
+      SystemConnectionState.waitingDevice => LinkState.unknown,
+      SystemConnectionState.disconnected ||
+      SystemConnectionState.deviceOffline ||
+      SystemConnectionState.degraded =>
+        LinkState.fail,
+    };
+  }
+
+  String get statusKoneksiSistemMessage {
+    return switch (statusKoneksiSistem) {
+      SystemConnectionState.connected => 'Terhubung.',
+      SystemConnectionState.disconnected =>
+        'Terputus: aplikasi tidak terhubung ke HiveMQ.',
+      SystemConnectionState.deviceOffline =>
+        'Terputus: ESP32 offline atau data sensor basi.',
+      SystemConnectionState.waitingDevice =>
+        'Menunggu status ESP32 dan komunikasi PLC.',
+      SystemConnectionState.degraded =>
+        'Gangguan: komunikasi ESP32-PLC tidak normal.',
+    };
+  }
+
+  String get koneksiAplikasiMessage => _terhubung
+      ? 'Aplikasi terhubung ke HiveMQ Cloud.'
+      : (_pesanKoneksi ?? 'Aplikasi terputus dari HiveMQ Cloud.');
+
+  String get koneksiPerangkatMessage {
+    if (!_terhubung) {
+      return 'Status ESP32 tidak dapat dipantau karena aplikasi terputus.';
+    }
+    return lruStatusMessage;
+  }
 
   LinkState get lruState {
-    if (statusLRUFail?.normal == false) return LinkState.fail;
-    if (_terhubung && !_dataBasi && dataSensorTerbaru != null) {
-      return LinkState.normal;
+    final status = statusLRUFail;
+    if (status == null) return LinkState.unknown;
+    if (!status.normal || _dataBasi || dataSensorTerbaru == null) {
+      return LinkState.fail;
     }
-    if (_terhubung && _dataBasi) return LinkState.fail;
-    return LinkState.unknown;
+    return LinkState.normal;
   }
 
   String get lruStatusMessage {
     if (!_terhubung) {
       return 'Aplikasi tidak terhubung ke broker MQTT.';
     }
-    if (statusLRUFail?.normal == false || _dataBasi) {
+    if (statusLRUFail == null) {
+      return 'Menunggu status LRUFail dari ESP32.';
+    }
+    if (!statusLRUFail!.normal || _dataBasi) {
       return 'LRUFail: ESP32 tidak terhubung MQTT; periksa hotspot/gateway.';
     }
     return 'ESP32 terhubung ke broker MQTT.';
@@ -77,11 +136,14 @@ class MqttService extends ChangeNotifier {
 
   String? get alasanTidakBisaKirim {
     if (!terhubung) return 'Belum terhubung ke server MQTT.';
-    if (lruState == LinkState.unknown || comState == LinkState.unknown) {
+    if (lruState == LinkState.unknown) {
       return 'Menunggu status LRUFail/COMFail dari perangkat…';
     }
     if (lruState == LinkState.fail) {
       return 'LRUFail: ESP32 terputus dari broker.';
+    }
+    if (comState == LinkState.unknown) {
+      return 'Menunggu status COMFail dari perangkat.';
     }
     if (comState == LinkState.fail) {
       return 'COMFail: komunikasi Modbus RTU ESP32–PLC bermasalah.';
@@ -157,6 +219,7 @@ class MqttService extends ChangeNotifier {
       await _client.connect();
     } catch (e) {
       _pesanKoneksi = 'Gagal autentikasi/koneksi MQTT: $e';
+      _errorTerakhir = _pesanKoneksi;
       debugPrint('[MQTT] Gagal connect: $e');
       _client.disconnect();
       _terhubung = false;
@@ -167,6 +230,7 @@ class MqttService extends ChangeNotifier {
     if (_client.connectionStatus?.state != MqttConnectionState.connected) {
       _pesanKoneksi =
           'Broker menolak koneksi MQTT: ${_client.connectionStatus}';
+      _errorTerakhir = _pesanKoneksi;
       debugPrint('[MQTT] Status koneksi gagal: ${_client.connectionStatus}');
       notifyListeners();
       return false;
@@ -179,6 +243,7 @@ class MqttService extends ChangeNotifier {
   void _onConnected() {
     _terhubung = true;
     _pesanKoneksi = null;
+    _errorTerakhir = null;
     notifyListeners();
     debugPrint('[MQTT] Terhubung.');
   }
@@ -202,6 +267,7 @@ class MqttService extends ChangeNotifier {
     _client.subscribe(_topicStatusComf, MqttQos.atLeastOnce);
 
     _client.updates!.listen((List<MqttReceivedMessage<MqttMessage>> event) {
+      if (event.isEmpty) return;
       final MqttPublishMessage recMess = event[0].payload as MqttPublishMessage;
       final String payload =
           MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
@@ -210,14 +276,16 @@ class MqttService extends ChangeNotifier {
       try {
         final Map<String, dynamic> json = jsonDecode(payload);
         if (topic == _topicDataSensor) {
+          _jumlahPayloadSensorDiterima++;
           dataSensorTerbaru = SensorData.fromJson(json);
           terakhirDataDiterima = DateTime.now();
-          if (statusLRUFail?.normal != false) {
-            statusLRUFail = StatusLink(
-              normal: true,
-              source: 'sensor_data_received',
-            );
-          }
+          _jumlahPayloadSensorDiproses++;
+          debugPrint(
+            '[MQTT] Payload sensor diproses topic=$topic '
+            'panjang=${payload.length} '
+            'terakhir=${terakhirDataDiterima!.toIso8601String()} '
+            'total=$_jumlahPayloadSensorDiproses',
+          );
           if (_dataBasi) _dataBasi = false;
         } else if (topic == _topicStatusLruf) {
           statusLRUFail = StatusLink.fromJson(json);
@@ -226,7 +294,9 @@ class MqttService extends ChangeNotifier {
         }
         notifyListeners();
       } catch (e) {
+        _errorTerakhir = 'Payload MQTT topic $topic tidak valid: $e';
         debugPrint('[MQTT] Gagal parse payload topic $topic: $e');
+        notifyListeners();
       }
     });
   }
@@ -234,10 +304,14 @@ class MqttService extends ChangeNotifier {
   /// Mengirim perintah NO/NC ke ESP32 (role Operator saja — validasi hak
   /// akses role dilakukan di layar pemanggil, BUKAN di service ini, agar
   /// service tetap sederhana/reusable; lihat kontrol_monitoring_lbs_screen.dart).
-  void kirimPerintahRelay(String perintah) {
+  bool kirimPerintahRelay(String perintah) {
     if (!_terhubung) {
       debugPrint('[MQTT] Tidak terhubung, perintah $perintah dibatalkan.');
-      return;
+      return false;
+    }
+    if (alasanTidakBisaKirim != null) {
+      debugPrint('[MQTT] Perintah $perintah dibatalkan: $alasanTidakBisaKirim');
+      return false;
     }
     final payload = jsonEncode({'command': perintah});
     _statusLbs = 'COMMAND_$perintah';
@@ -249,6 +323,7 @@ class MqttService extends ChangeNotifier {
       MqttQos.atLeastOnce,
       builder.payload!,
     );
+    return true;
   }
 
   void disconnect() {

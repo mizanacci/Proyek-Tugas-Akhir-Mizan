@@ -16,6 +16,7 @@ static ModbusRTU mb;
 // oleh master (PLC). volatile karena diakses dari callback (konteks mirip
 // interrupt pada beberapa implementasi library) sekaligus dari task loop.
 static volatile unsigned long waktuAksesTerakhir = 0;
+static volatile unsigned long jumlahAksesRegister = 0;
 
 // Ambang batas watchdog: beberapa kali lipat interval polling normal PLC
 // (asumsi ~1 detik per proposal), diberi margin agar tidak terlalu sensitif
@@ -33,11 +34,16 @@ static volatile unsigned long waktuAksesTerakhir = 0;
 // pada versi yang terpasang.
 static uint16_t cbAksesRegister(TRegister* reg, uint16_t val) {
   waktuAksesTerakhir = millis();
+  jumlahAksesRegister++;
   return val;
 }
 
 void modbusSlaveInit() {
-  Serial2.begin(MODBUS_BAUDRATE, SERIAL_8N1, PIN_MODBUS_RX2, PIN_MODBUS_TX2);
+  Serial2.begin(
+      MODBUS_BAUDRATE,
+      MODBUS_SERIAL_CONFIG,
+      PIN_MODBUS_RX2,
+      PIN_MODBUS_TX2);
   mb.begin(&Serial2);   // tanpa pin DIR — RS-232C 3-kabel point-to-point,
                           // beda dengan RS-485 half-duplex yang perlu kontrol arah
   mb.slave(MODBUS_SLAVE_ID);
@@ -76,10 +82,15 @@ void modbusSlaveTask() {
 }
 
 void modbusUpdateHasilSensor(const HasilSensor& hasil) {
-  mb.Ireg(REG_RMS_V_SUMBER, (uint16_t)(hasil.tegangan_sumber * SKALA_TEGANGAN));
-  mb.Ireg(REG_RMS_V_BEBAN,  (uint16_t)(hasil.tegangan_beban  * SKALA_TEGANGAN));
-  mb.Ireg(REG_RMS_I_SUMBER, (uint16_t)(hasil.arus_sumber     * SKALA_ARUS));
-  mb.Ireg(REG_RMS_I_BEBAN,  (uint16_t)(hasil.arus_beban      * SKALA_ARUS));
+  const auto keRegister = [](float nilai, float skala) -> uint16_t {
+    if (!isfinite(nilai) || nilai <= 0.0f) return 0;
+    const float terskala = roundf(nilai * skala);
+    return (uint16_t)constrain(terskala, 0.0f, 65535.0f);
+  };
+  mb.Ireg(REG_RMS_V_SUMBER, keRegister(hasil.tegangan_sumber, SKALA_TEGANGAN));
+  mb.Ireg(REG_RMS_V_BEBAN, keRegister(hasil.tegangan_beban, SKALA_TEGANGAN));
+  mb.Ireg(REG_RMS_I_SUMBER, keRegister(hasil.arus_sumber, SKALA_ARUS));
+  mb.Ireg(REG_RMS_I_BEBAN, keRegister(hasil.arus_beban, SKALA_ARUS));
   mb.Ireg(REG_KUALITAS_DATA, hasil.bitmask_kualitas);
 }
 
@@ -101,4 +112,8 @@ bool modbusEstimasiComFailLokal() {
 
 unsigned long modbusMsSejakAksesTerakhir() {
   return millis() - waktuAksesTerakhir;
+}
+
+unsigned long modbusJumlahAksesRegister() {
+  return jumlahAksesRegister;
 }

@@ -26,15 +26,25 @@ ESP32 = **slave**, PLC = **master**. Alamat 0-based sesuai konvensi library.
 
 | Alamat | Nama | Tipe | Isi | Skala |
 |---|---|---|---|---|
-| 0 | `REG_RMS_V_SUMBER` | Input Register | Tegangan RMS sisi sumber | ÷100 → Volt |
-| 1 | `REG_RMS_V_BEBAN` | Input Register | Tegangan RMS sisi beban | ÷100 → Volt |
-| 2 | `REG_RMS_I_SUMBER` | Input Register | Arus RMS sisi sumber | ÷1000 → Ampere |
-| 3 | `REG_RMS_I_BEBAN` | Input Register | Arus RMS sisi beban | ÷1000 → Ampere |
-| 4 | `REG_KUALITAS_DATA` | Input Register | Bitmask GOOD(0)/SUSPECT(1) per kanal (bit0-3) | — |
-| 5 | `REG_LRUFAIL` | Input Register | Status LRUFail (0=NORMAL, 1=FAIL) | — |
-| 6 | `REG_CMD_REMOTE` | Holding Register | Perintah remote (0=none, 1=NO, 2=NC) — **PLC wajib tulis-balik 0 setelah eksekusi** | — |
+| 0 | `REG_RMS_V_SUMBER` | Input Register, FC04 | Tegangan RMS sisi sumber | ÷100 → Volt |
+| 1 | `REG_RMS_V_BEBAN` | Input Register, FC04 | Tegangan RMS sisi beban | ÷100 → Volt |
+| 2 | `REG_RMS_I_SUMBER` | Input Register, FC04 | Arus RMS sisi sumber | ÷1000 → Ampere |
+| 3 | `REG_RMS_I_BEBAN` | Input Register, FC04 | Arus RMS sisi beban | ÷1000 → Ampere |
+| 4 | `REG_KUALITAS_DATA` | Input Register, FC04 | Bitmask GOOD(0)/SUSPECT(1) per kanal (bit0-3) | — |
+| 5 | `REG_LRUFAIL` | Input Register, FC04 | Status LRUFail (0=NORMAL, 1=FAIL) | — |
+| 6 | `REG_CMD_REMOTE` | Holding Register, FC03/FC06 | Perintah remote (0=none, 1=NO, 2=NC) — **PLC wajib tulis-balik 0 setelah eksekusi** | — |
 
 **Wajib dikonfirmasi**: pemetaan alamat di atas ke konfigurasi *Modbus-RTU Easy Master* pada PLC Setup CX-Programmer harus disamakan manual — tidak ada sinkronisasi otomatis antara firmware dan ladder logic.
+
+Alamat pada tabel adalah indeks internal library mulai dari 0. Pada CX-Programmer,
+ikuti notasi alamat yang ditampilkan konfigurasi Easy Master dan lakukan satu
+uji baca terhadap register 0 sebelum mengisi seluruh map; jangan menambahkan
+offset 30001/40001 tanpa memastikan konvensi perangkat lunak yang digunakan.
+
+Parameter firmware saat ini adalah 9600 baud, `SERIAL_8N1`, slave ID 1, melalui
+RS-232C 3-kabel dan MAX3232. `SERIAL_8E1` belum dipilih karena parity port PLC
+belum dibuktikan dari konfigurasi CX-Programmer. Kedua sisi wajib memakai baud,
+data bits, parity, stop bit, dan slave ID yang sama.
 
 **Mengapa "Arus Gangguan" tidak punya register sendiri**: nilai ini diusulkan dihitung di ladder logic PLC (bandingkan `REG_RMS_I_BEBAN` terhadap ambang batas), bukan dikirim terpisah dari ESP32 — karena secara fisik berasal dari sensor arus yang sama, dan sesuai Batasan Rancangan proposal (poin keterbatasan Trip Otomatis), nilai ini murni untuk tampilan SCADA/HMI, tidak memicu aksi apa pun di ESP32 maupun firmware.
 
@@ -47,6 +57,44 @@ COMFail (kegagalan link Modbus RTU) dideteksi watchdog **di sisi PLC**. Secara p
 ### 2. Pola *handshake* command remote
 
 Register `REG_CMD_REMOTE` dirancang dengan pola tulis-baca-tulis-balik (acknowledge): ESP32 menulis nilai perintah (1=NO/2=NC) saat menerima dari MQTT; PLC membaca lalu mengeksekusi ladder logic (dengan gerbang Hot Line=UNLOCK, LRUFail=NORMAL, COMFail=NORMAL); PLC **wajib** menulis-balik 0 ke register yang sama setelah eksekusi, agar perintah yang sama tidak tereksekusi berulang pada polling berikutnya. Ini perlu diimplementasikan pada ladder logic CX-Programmer sisi PLC — firmware ESP32 tidak melakukan auto-clear.
+
+## Kalibrasi dan diagnostik sensor
+
+ADS1115 dibaca pada A0=ZMPT sumber, A1=ZMPT beban, A2=ACS712 sumber, dan
+A3=ACS712 beban. Setiap batch mengambil 50 sampel, menghitung rata-rata DC
+batch, lalu menghitung RMS komponen AC. Gain dan offset ZMPT sumber/beban
+diterapkan secara terpisah. Nilai `BATAS_TEGANGAN_OFF` hanya mematikan residual
+di bawah ambang; bukan pengganti kalibrasi.
+
+Nilai `BATAS_NOISE_ARUS_A` pada template publik adalah 0,10 A sebagai titik
+awal agar beban kecil tidak otomatis dibuang seperti ambang 3 A sebelumnya.
+Nilai ini wajib disesuaikan setelah mengukur noise saat 0 A dan arus minimum
+yang perlu dideteksi. Varian ACS712, Vcc, rangkaian pembagi, dan sensitivitas
+100 mV/A belum dapat diverifikasi dari source saja.
+
+Aktifkan `MODE_DEBUG_SENSOR` hanya saat diagnosis. Serial Monitor akan
+menampilkan rentang raw ADC, DC, RMS, nilai tegangan sebelum kalibrasi, nilai
+setelah deadband/filter, serta arus hasil konversi. Jika tegangan ESP32
+berbeda dari alat ukur true-RMS, catat pasangan `V_tampil` dan `V_ref` pada
+kondisi yang sama sebelum menghitung koreksi gain. Jangan menetapkan gain baru
+berdasarkan angka 320--330 V tanpa pengukuran referensi dan pemeriksaan
+clipping/wiring.
+
+## Checklist integrasi CP1E-N30DR-A
+
+1. Pastikan port PLC yang dipakai benar-benar RS-232C bawaan dan MAX3232
+   dipasang; jangan menghubungkan RS-232 langsung ke GPIO ESP32.
+2. Cocokkan TX PLC ke RX MAX3232, RX PLC ke TX MAX3232, dan SG ke GND.
+3. Cocokkan `PIN_MODBUS_RX2`/`PIN_MODBUS_TX2` dengan kabel fisik; workspace
+   saat ini menggunakan RX GPIO18 dan TX GPIO17.
+4. Di CX-Programmer 9.73, pastikan mode Easy Master, slave ID 1, parameter
+   serial, FC04 untuk input register, dan FC03/FC06 untuk holding register.
+5. Monitor register 0--5 saat ESP32 aktif. Jika tidak ada callback akses,
+   COMFail lokal akan menjadi FAIL setelah 5 detik; angka ini adalah estimasi
+   sisi ESP32, bukan status internal PLC.
+6. Uji command dengan nilai 1/2, pastikan ladder membaca dan menulis balik 0
+   setelah eksekusi. Firmware tidak menyatakan relay berubah hanya karena
+   register berhasil ditulis.
 
 ## Status Migrasi ADS1115
 

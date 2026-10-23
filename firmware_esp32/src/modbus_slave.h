@@ -95,4 +95,10 @@ bool modbusEstimasiComFailLokal();
  */
 unsigned long modbusMsSejakAksesTerakhir();
 
+/**
+ * Jumlah akses register yang berhasil memicu callback library sejak boot.
+ * Ini adalah indikator aktivitas polling, bukan jumlah frame mentah UART.
+ */
+unsigned long modbusJumlahAksesRegister();
+
 #endif // MODBUS_SLAVE_H

@@ -8,9 +8,9 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/mqtt_service.dart';
-import '../services/firebase_service.dart';
 import '../models/sensor_data.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/integration_diagnostics_panel.dart';
 import '../widgets/status_link_tile.dart';
 
 class MonitoringScreen extends StatefulWidget {
@@ -25,23 +25,6 @@ class MonitoringScreen extends StatefulWidget {
 
 class _MonitoringScreenState extends State<MonitoringScreen> {
   @override
-  void initState() {
-    super.initState();
-    _pastikanTerhubungMqtt();
-  }
-
-  Future<void> _pastikanTerhubungMqtt() async {
-    final mqtt = context.read<MqttService>();
-    if (!mqtt.terhubung) {
-      final firebaseUser = context.read<FirebaseService>().userSaatIni;
-      await mqtt.connectForRole(
-        widget.role,
-        firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch.toString(),
-      );
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Monitoring')),
@@ -49,16 +32,22 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         builder: (context, mqtt, _) {
           final data = mqtt.dataSensorTerbaru;
           if (!mqtt.terhubung) {
-            return EmptyState(
-              imageAsset: 'assets/images/empty_mqtt_disconnected.png',
-              title: 'Belum terhubung ke server',
-              message: mqtt.pesanKoneksi ?? 'Memeriksa koneksi MQTT…',
+            return ListView(
+              children: [
+                EmptyState(
+                  imageAsset: 'assets/images/empty_mqtt_disconnected.png',
+                  title: 'Belum terhubung ke server',
+                  message: mqtt.pesanKoneksi ?? 'Memeriksa koneksi MQTT…',
+                ),
+                const IntegrationDiagnosticsPanel(),
+              ],
             );
           }
           if (data == null) {
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                const IntegrationDiagnosticsPanel(),
                 const EmptyState(
                   imageAsset: 'assets/images/empty_sensor_waiting.png',
                   title: 'Menunggu data sensor',
@@ -81,6 +70,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              const IntegrationDiagnosticsPanel(),
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: Image.asset(

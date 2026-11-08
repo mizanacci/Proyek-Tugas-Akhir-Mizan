@@ -1,17 +1,40 @@
-# scada_mizan_app
+# SCADA Mizan Flutter App
 
-A new Flutter project.
+Aplikasi Flutter menerima telemetry dari HiveMQ Cloud dan menulis snapshot ke
+Firebase Realtime Database pada `/data_activity` selama aplikasi aktif dan
+pengguna Firebase login. ESP32 tidak menulis langsung ke Firebase.
 
-## Getting Started
+## Menjalankan
 
-This project is a starting point for a Flutter application.
+Isi credential MQTT pada `lib/config/app_secrets.dart` lokal (file diabaikan
+Git), lalu jalankan dari PowerShell:
 
-A few resources to get you started if this is your first Flutter project:
+```powershell
+flutter pub get
+flutter run `
+	--dart-define=MQTT_MANAGER_USERNAME=<username-manager> `
+	--dart-define=MQTT_MANAGER_PASSWORD=<password-manager> `
+	--dart-define=MQTT_OPERATOR_USERNAME=<username-operator> `
+	--dart-define=MQTT_OPERATOR_PASSWORD=<password-operator>
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Nilai `--dart-define` dapat diekstrak dari APK; credential ini bukan tempat
+penyimpanan rahasia untuk aplikasi produksi. Jangan commit credential MQTT atau
+service-account Firebase.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Diagnostik dan Pengujian
+
+Panel diagnostik tersedia pada Monitoring dan Data Activity. Build debug
+menyediakan tombol uji tulis Firebase, yang menulis record bertanda
+`FIREBASE_WRITE_TEST` hanya bila write benar-benar berhasil.
+
+```powershell
+flutter analyze
+flutter test
+flutter build apk --debug
+flutter build apk --release
+```
+
+Snapshot otomatis berhenti ketika proses aplikasi ditutup. Status verifikasi,
+prosedur manual, skema, dan batas keamanan tersedia pada folder `../docs/`.
+Rules lokal di `database.rules.json` tidak otomatis dipublikasikan ke Firebase.

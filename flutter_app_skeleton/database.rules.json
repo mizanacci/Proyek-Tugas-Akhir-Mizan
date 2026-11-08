@@ -2,16 +2,22 @@
   "rules": {
     "users": {
       "$uid": {
-        ".read": "auth != null && auth.uid == $uid",
-        ".write": "auth != null && auth.uid == $uid"
+        ".read": "auth != null && auth.uid == $uid"
       }
     },
     "data_activity": {
       ".read": "auth != null",
+      ".indexOn": ["timestamp"],
       "$id": {
-        ".write": "auth != null && !data.exists()",
-        ".validate": "newData.hasChildren(['timestamp','jenis','keterangan'])",
+        ".write": "auth != null && !data.exists() && newData.child('oleh_uid').val() == auth.uid",
+        ".validate": "newData.hasChildren(['timestamp','jenis','keterangan','oleh_uid','sumber'])",
         "timestamp": {
+          ".validate": "newData.isNumber()"
+        },
+        "device_ts_ms": {
+          ".validate": "newData.isNumber()"
+        },
+        "received_at": {
           ".validate": "newData.isNumber()"
         },
         "jenis": {
@@ -20,6 +26,23 @@
         "keterangan": {
           ".validate": "newData.isString() && newData.val().length <= 200"
         },
+        "oleh_uid": {
+          ".validate": "newData.isString() && newData.val() == auth.uid"
+        },
+        "oleh_nama": {
+          ".validate": "newData.isString()"
+        },
+        "sumber": {
+          ".validate": "newData.isString() && (newData.val() == 'mobile' || newData.val() == 'mqtt')"
+        },
+        "v_sumber": { ".validate": "newData.isNumber()" },
+        "v_beban": { ".validate": "newData.isNumber()" },
+        "i_sumber": { ".validate": "newData.isNumber()" },
+        "i_beban": { ".validate": "newData.isNumber()" },
+        "kualitas": { ".validate": "newData.isNumber()" },
+        "status_lru": { ".validate": "newData.isString()" },
+        "status_com": { ".validate": "newData.isString()" },
+        "status_lbs": { ".validate": "newData.isString()" },
         "$other": {
           ".validate": true
         }
@@ -27,11 +50,11 @@
     },
     "settings": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() == 'manager'"
     },
     "scada_data": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() == 'manager'"
     }
   }
 }

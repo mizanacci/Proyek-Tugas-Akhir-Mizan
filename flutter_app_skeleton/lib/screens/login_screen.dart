@@ -43,9 +43,9 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       // Routing berdasarkan role — lihat main.dart untuk daftar rute.
-    // Koneksi MQTT (MqttService.connect) dilakukan di masing-masing layar
-    // Menu, BUKAN di sini, agar kredensial MQTT bisa disesuaikan per-role
-    // bila diperlukan (lihat catatan 04_Konfigurasi_HiveMQ.md Bagian 2).
+      // Koneksi MQTT (MqttService.connect) dilakukan di masing-masing layar
+      // Menu, BUKAN di sini, agar kredensial MQTT bisa disesuaikan per-role
+      // bila diperlukan (lihat catatan 04_Konfigurasi_HiveMQ.md Bagian 2).
       if (role == UserRole.manager) {
         Navigator.of(context).pushReplacementNamed('/menu-manager');
       } else {
@@ -55,7 +55,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _pesanError = 'Tidak dapat terhubung ke Firebase. Periksa internet dan izin database.';
+        _pesanError =
+            'Tidak dapat terhubung ke Firebase. Periksa internet dan izin database.';
       });
     }
   }

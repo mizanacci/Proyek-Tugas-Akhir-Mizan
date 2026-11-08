@@ -7,7 +7,6 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/firebase_service.dart';
-import '../services/mqtt_service.dart';
 import '../models/sensor_data.dart';
 import 'monitoring_screen.dart';
 import 'kontrol_monitoring_lbs_screen.dart';
@@ -26,7 +25,6 @@ class MenuOperatorScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
-              context.read<MqttService>().disconnect();
               await context.read<FirebaseService>().logout();
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(

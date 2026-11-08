@@ -32,6 +32,7 @@ class ScadaMizanApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => FirebaseService()),
         ChangeNotifierProvider(create: (_) => MqttService()),
         ProxyProvider2<FirebaseService, MqttService, EventLogger>(
+          lazy: false,
           update: (_, firebase, mqtt, previous) =>
               previous ?? EventLogger(firebase, mqtt),
           dispose: (_, logger) => logger.dispose(),

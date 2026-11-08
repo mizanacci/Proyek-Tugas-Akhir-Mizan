@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../services/firebase_service.dart';
+import '../widgets/integration_diagnostics_panel.dart';
 
 class DataActivityScreen extends StatelessWidget {
   const DataActivityScreen({super.key});
@@ -17,91 +18,98 @@ class DataActivityScreen extends StatelessWidget {
     final firebaseService = context.read<FirebaseService>();
     return Scaffold(
       appBar: AppBar(title: const Text('Data Activity')),
-      body: StreamBuilder<DatabaseEvent>(
-        stream: firebaseService.streamDataActivity(batas: 100),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Data Activity tidak dapat dibaca.\n\n'
-                  '${snapshot.error}\n\n'
-                  'Pastikan user sudah login dan Security Rules Firebase '
-                  'sudah dipublikasikan.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
-          }
-          final value = snapshot.data?.snapshot.value;
-          if (value == null) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  'Belum ada riwayat. Riwayat tercatat saat perintah dikirim '
-                  'atau status LRUFail/COMFail berubah. Pastikan snapshot '
-                  'SCADA sudah berhasil ditulis oleh aplikasi.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
-          }
+      body: Column(
+        children: [
+          const IntegrationDiagnosticsPanel(),
+          Expanded(
+            child: StreamBuilder<DatabaseEvent>(
+              stream: firebaseService.streamDataActivity(batas: 100),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'Data Activity tidak dapat dibaca.\n\n'
+                        '${snapshot.error}\n\n'
+                        'Pastikan user sudah login dan Security Rules Firebase '
+                        'sudah dipublikasikan.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  );
+                }
+                final value = snapshot.data?.snapshot.value;
+                if (value == null) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Belum ada riwayat. Riwayat tercatat saat perintah dikirim '
+                        'atau status LRUFail/COMFail berubah. Pastikan snapshot '
+                        'SCADA sudah berhasil ditulis oleh aplikasi.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  );
+                }
 
-          if (value is! Map) {
-            return const Center(
-              child: Text(
-                'Format data_activity tidak valid di Firebase.',
-                textAlign: TextAlign.center,
-              ),
-            );
-          }
+                if (value is! Map) {
+                  return const Center(
+                    child: Text(
+                      'Format data_activity tidak valid di Firebase.',
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
 
-          final raw = Map<dynamic, dynamic>.from(value);
-          final entries = raw.values
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList()
-            ..sort(
-              (a, b) => _timestamp(b).compareTo(_timestamp(a)),
-            );
+                final raw = Map<dynamic, dynamic>.from(value);
+                final entries = raw.values
+                    .whereType<Map>()
+                    .map((item) => Map<String, dynamic>.from(item))
+                    .toList()
+                  ..sort(
+                    (a, b) => _timestamp(b).compareTo(_timestamp(a)),
+                  );
 
-          if (entries.isEmpty) {
-            return const Center(
-              child: Text(
-                'Belum ada riwayat. Riwayat tercatat saat perintah dikirim '
-                'atau status LRUFail/COMFail berubah.',
-                textAlign: TextAlign.center,
-              ),
-            );
-          }
+                if (entries.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'Belum ada riwayat. Riwayat tercatat saat perintah dikirim '
+                      'atau status LRUFail/COMFail berubah.',
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columnSpacing: 20,
-              columns: const [
-                DataColumn(label: Text('No')),
-                DataColumn(label: Text('Tanggal')),
-                DataColumn(label: Text('Waktu')),
-                DataColumn(label: Text('Jenis')),
-                DataColumn(label: Text('Tegangan (V)')),
-                DataColumn(label: Text('Arus (A)')),
-                DataColumn(label: Text('Status')),
-                DataColumn(label: Text('Keterangan')),
-              ],
-              rows: [
-                for (var index = 0; index < entries.length; index++)
-                  _buildRow(entries[index], entries.length - index),
-              ],
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columnSpacing: 20,
+                    columns: const [
+                      DataColumn(label: Text('No')),
+                      DataColumn(label: Text('Tanggal')),
+                      DataColumn(label: Text('Waktu')),
+                      DataColumn(label: Text('Jenis')),
+                      DataColumn(label: Text('Tegangan (V)')),
+                      DataColumn(label: Text('Arus (A)')),
+                      DataColumn(label: Text('Status')),
+                      DataColumn(label: Text('Keterangan')),
+                    ],
+                    rows: [
+                      for (var index = 0; index < entries.length; index++)
+                        _buildRow(entries[index], entries.length - index),
+                    ],
+                  ),
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

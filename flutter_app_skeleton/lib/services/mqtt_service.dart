@@ -10,9 +10,11 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_secrets.dart';
 import '../models/sensor_data.dart';
 
@@ -26,26 +28,53 @@ const String _topicCmdRemote = 'scada/mizan/cmd/relay';
 
 class MqttService extends ChangeNotifier {
   late MqttServerClient _client;
+  StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>?
+      _updatesSubscription;
+  Future<bool>? _connectOperation;
   bool _clientInitialized = false;
   bool _terhubung = false;
+  bool _subscriptionReady = false;
   String? _pesanKoneksi;
   String _statusLbs = 'UNKNOWN';
   String? _errorTerakhir;
+  String? _lastParseError;
   int _jumlahPayloadSensorDiterima = 0;
   int _jumlahPayloadSensorDiproses = 0;
+  int _publishFailureCount = 0;
+  String? _clientId;
+  final Set<String> _subscriptionsConfirmed = {};
+  final Duration sensorStaleAfter;
 
   SensorData? dataSensorTerbaru;
   StatusLink? statusLRUFail;
   StatusLink? statusCOMFail;
   DateTime? terakhirDataDiterima;
+  DateTime? lastMessageReceivedAt;
   bool _dataBasi = true;
   Timer? _timerBasi;
 
+  MqttService({
+    this.sensorStaleAfter = const Duration(seconds: 15),
+  }) {
+    _timerBasi = Timer.periodic(const Duration(seconds: 1), (_) {
+      final dataBasiBaru = terakhirDataDiterima == null ||
+          DateTime.now().difference(terakhirDataDiterima!) > sensorStaleAfter;
+      if (dataBasiBaru != _dataBasi) {
+        _dataBasi = dataBasiBaru;
+        notifyListeners();
+      }
+    });
+  }
+
   bool get terhubung => _terhubung;
+  bool get subscriptionReady => _subscriptionReady;
   bool get dataBasi => _dataBasi;
   String? get pesanKoneksi => _pesanKoneksi;
   String get statusLbs => _statusLbs;
   String? get errorTerakhir => _errorTerakhir;
+  String? get lastParseError => _lastParseError;
+  String? get clientIdForDiagnostics => _clientId;
+  int get publishFailureCount => _publishFailureCount;
   int get jumlahPayloadSensorDiterima => _jumlahPayloadSensorDiterima;
   int get jumlahPayloadSensorDiproses => _jumlahPayloadSensorDiproses;
   List<String> get topicDilanggani => const [
@@ -155,20 +184,9 @@ class MqttService extends ChangeNotifier {
     return null;
   }
 
-  MqttService() {
-    _timerBasi = Timer.periodic(const Duration(seconds: 1), (_) {
-      final dataBasiBaru = terakhirDataDiterima == null ||
-          DateTime.now().difference(terakhirDataDiterima!) >
-              const Duration(seconds: 5);
-      if (dataBasiBaru != _dataBasi) {
-        _dataBasi = dataBasiBaru;
-        notifyListeners();
-      }
-    });
-  }
-
-  Future<bool> connectForRole(UserRole role, String uid) {
+  Future<bool> connectForRole(UserRole role, String uid) async {
     final bool isManager = role == UserRole.manager;
+    final clientId = await clientIdUntukInstalasi();
     return connect(
       username: isManager
           ? AppSecrets.mqttManagerUsername
@@ -176,8 +194,22 @@ class MqttService extends ChangeNotifier {
       password: isManager
           ? AppSecrets.mqttManagerPassword
           : AppSecrets.mqttOperatorPassword,
-      clientId: 'flutter-$uid',
+      clientId: clientId,
     );
+  }
+
+  Future<String> clientIdUntukInstalasi() async {
+    final preferences = await SharedPreferences.getInstance();
+    var installationId = preferences.getString('mqtt_installation_id');
+    if (installationId == null) {
+      final random = Random.secure();
+      installationId = List.generate(
+        16,
+        (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
+      await preferences.setString('mqtt_installation_id', installationId);
+    }
+    return 'flutter-$installationId';
   }
 
   /// Panggil sekali (mis. dari initState halaman utama setelah login) dengan
@@ -185,6 +217,27 @@ class MqttService extends ChangeNotifier {
   /// per instalasi aplikasi agar tidak bentrok dengan sesi ESP32/aplikasi
   /// lain yang terhubung ke cluster yang sama.
   Future<bool> connect({
+    required String username,
+    required String password,
+    required String clientId,
+  }) {
+    _clientId = clientId;
+    if (_terhubung) return Future.value(true);
+    final activeOperation = _connectOperation;
+    if (activeOperation != null) return activeOperation;
+
+    final operation = _connect(
+      username: username,
+      password: password,
+      clientId: clientId,
+    );
+    _connectOperation = operation;
+    return operation.whenComplete(() {
+      if (identical(_connectOperation, operation)) _connectOperation = null;
+    });
+  }
+
+  Future<bool> _connect({
     required String username,
     required String password,
     required String clientId,
@@ -197,17 +250,29 @@ class MqttService extends ChangeNotifier {
       return false;
     }
 
+    await _updatesSubscription?.cancel();
+    if (_clientInitialized) _client.disconnect();
     _client = MqttServerClient.withPort(_mqttHost, clientId, _mqttPort);
     _clientInitialized = true;
     _client.secure = true;
     _client.securityContext = SecurityContext.defaultContext;
     _client.keepAlivePeriod = 30;
     _client.autoReconnect = true;
+    _client.resubscribeOnAutoReconnect = true;
     _client.onConnected = _onConnected;
     _client.onDisconnected = _onDisconnected;
     _client.onAutoReconnect = () {
+      _terhubung = false;
+      _subscriptionReady = false;
+      _subscriptionsConfirmed.clear();
+      unawaited(_updatesSubscription?.cancel());
+      _updatesSubscription = null;
       debugPrint('[MQTT] Auto-reconnect dimulai...');
+      notifyListeners();
     };
+    _client.onAutoReconnected = _onAutoReconnected;
+    _client.onSubscribed = _onSubscribed;
+    _client.onSubscribeFail = _onSubscribeFail;
     _client.logging(on: false); // set true saat debugging
 
     final connMessage = MqttConnectMessage()
@@ -237,12 +302,14 @@ class MqttService extends ChangeNotifier {
       return false;
     }
 
+    _listenForUpdates();
     _subscribeSemuaTopic();
     return true;
   }
 
   void _onConnected() {
     _terhubung = true;
+    _subscriptionReady = false;
     _pesanKoneksi = null;
     _errorTerakhir = null;
     notifyListeners();
@@ -251,33 +318,66 @@ class MqttService extends ChangeNotifier {
 
   void _onDisconnected() {
     _terhubung = false;
+    _subscriptionReady = false;
     _pesanKoneksi ??= 'Koneksi MQTT terputus.';
     statusLRUFail = null;
     statusCOMFail = null;
     dataSensorTerbaru = null;
     terakhirDataDiterima = null;
+    lastMessageReceivedAt = null;
     _statusLbs = 'UNKNOWN';
     _dataBasi = true;
     notifyListeners();
     debugPrint('[MQTT] Terputus.');
   }
 
+  void _onAutoReconnected() {
+    _terhubung = true;
+    _pesanKoneksi = null;
+    _listenForUpdates();
+    notifyListeners();
+    debugPrint('[MQTT] Terhubung kembali.');
+  }
+
+  void _onSubscribed(String topic) {
+    _subscriptionsConfirmed.add(topic);
+    _subscriptionReady =
+        _subscriptionsConfirmed.length == topicDilanggani.length;
+    notifyListeners();
+    debugPrint('[MQTT] Subscription aktif: $topic');
+  }
+
+  void _onSubscribeFail(String topic) {
+    _subscriptionReady = false;
+    _errorTerakhir = 'Broker menolak subscription topic $topic.';
+    notifyListeners();
+    debugPrint('[MQTT] Subscription gagal: $topic');
+  }
+
   void _subscribeSemuaTopic() {
+    _subscriptionsConfirmed.clear();
+    _subscriptionReady = false;
     _client.subscribe(_topicDataSensor, MqttQos.atMostOnce);
     _client.subscribe(_topicStatusLruf, MqttQos.atLeastOnce);
     _client.subscribe(_topicStatusComf, MqttQos.atLeastOnce);
+  }
 
-    _client.updates!.listen((List<MqttReceivedMessage<MqttMessage>> event) {
+  void _listenForUpdates() {
+    _updatesSubscription?.cancel();
+    final updates = _client.updates;
+    if (updates == null) return;
+    _updatesSubscription = updates.listen((event) {
       if (event.isEmpty) return;
       final MqttPublishMessage recMess = event[0].payload as MqttPublishMessage;
       final String payload =
           MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
       final String topic = event[0].topic;
+      lastMessageReceivedAt = DateTime.now();
+      if (topic == _topicDataSensor) _jumlahPayloadSensorDiterima++;
 
       try {
         final Map<String, dynamic> json = jsonDecode(payload);
         if (topic == _topicDataSensor) {
-          _jumlahPayloadSensorDiterima++;
           dataSensorTerbaru = SensorData.fromJson(json);
           terakhirDataDiterima = DateTime.now();
           _jumlahPayloadSensorDiproses++;
@@ -288,6 +388,7 @@ class MqttService extends ChangeNotifier {
             'total=$_jumlahPayloadSensorDiproses',
           );
           if (_dataBasi) _dataBasi = false;
+          _lastParseError = null;
         } else if (topic == _topicStatusLruf) {
           statusLRUFail = StatusLink.fromJson(json);
         } else if (topic == _topicStatusComf) {
@@ -296,6 +397,7 @@ class MqttService extends ChangeNotifier {
         notifyListeners();
       } catch (e) {
         _errorTerakhir = 'Payload MQTT topic $topic tidak valid: $e';
+        if (topic == _topicDataSensor) _lastParseError = _errorTerakhir;
         debugPrint('[MQTT] Gagal parse payload topic $topic: $e');
         notifyListeners();
       }
@@ -315,27 +417,43 @@ class MqttService extends ChangeNotifier {
       return false;
     }
     final payload = jsonEncode({'command': perintah});
-    _statusLbs = 'COMMAND_$perintah';
-    notifyListeners();
     final builder = MqttClientPayloadBuilder();
     builder.addString(payload);
-    _client.publishMessage(
-      _topicCmdRemote,
-      MqttQos.atLeastOnce,
-      builder.payload!,
-    );
-    return true;
+    try {
+      final messageId = _client.publishMessage(
+        _topicCmdRemote,
+        MqttQos.atLeastOnce,
+        builder.payload!,
+      );
+      if (messageId == 0) {
+        _publishFailureCount++;
+        _errorTerakhir = 'Broker tidak menerima publish perintah.';
+        notifyListeners();
+        return false;
+      }
+      _statusLbs = 'PUBLISHED_$perintah';
+      notifyListeners();
+      return true;
+    } catch (error) {
+      _publishFailureCount++;
+      _errorTerakhir = 'Gagal publish perintah MQTT: $error';
+      notifyListeners();
+      return false;
+    }
   }
 
   void disconnect() {
     if (_clientInitialized) {
       _client.disconnect();
     }
+    _onDisconnected();
   }
 
   @override
   void dispose() {
     _timerBasi?.cancel();
+    unawaited(_updatesSubscription?.cancel());
+    if (_clientInitialized) _client.disconnect();
     super.dispose();
   }
 }

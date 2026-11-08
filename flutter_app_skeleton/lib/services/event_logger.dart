@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../models/sensor_data.dart';
 import 'firebase_service.dart';
@@ -12,44 +13,95 @@ class EventLogger {
   late final Timer _snapshotTimer;
   bool _aktif = false;
   bool _snapshotSedangDitulis = false;
+  int _authGeneration = 0;
+  String? _activeUid;
+  String? _lastSnapshotSampleKey;
   LinkState _lruSebelumnya = LinkState.unknown;
   LinkState _comSebelumnya = LinkState.unknown;
 
   EventLogger(this._firebaseService, this._mqttService) {
+    debugPrint('[EventLogger] Initialized');
     _mqttListener = _periksaPerubahan;
     _mqttService.addListener(_mqttListener);
-    _authSubscription = _firebaseService.perubahanUser.listen((user) {
-      _aktif = user != null;
-      _lruSebelumnya = LinkState.unknown;
-      _comSebelumnya = LinkState.unknown;
-      if (_aktif) {
-        debugPrint('[Firebase] Auth aktif; EventLogger siap.');
-        unawaited(_catatSnapshotScada());
-      } else {
-        debugPrint(
-            '[Firebase] Tidak ada user aktif; EventLogger menunggu login.');
-      }
-    });
+    debugPrint('[EventLogger] MQTT listener active');
+    _authSubscription = _firebaseService.perubahanUser.listen(
+      (user) => unawaited(_tanganiPerubahanAuth(user)),
+      onError: (Object error) {
+        debugPrint('[EventLogger] Auth stream gagal: $error');
+      },
+    );
+    debugPrint('[EventLogger] Firebase Auth listener registered');
     _snapshotTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       unawaited(_catatSnapshotScada());
     });
+    debugPrint('[EventLogger] Snapshot timer active');
+  }
+
+  bool get aktif => _aktif;
+
+  Future<void> _tanganiPerubahanAuth(User? user) async {
+    final generation = ++_authGeneration;
+    _lruSebelumnya = LinkState.unknown;
+    _comSebelumnya = LinkState.unknown;
+    if (user == null) {
+      _aktif = false;
+      _activeUid = null;
+      _lastSnapshotSampleKey = null;
+      _mqttService.disconnect();
+      debugPrint('[EventLogger] Menunggu sesi Firebase Auth.');
+      return;
+    }
+
+    _aktif = true;
+    if (_activeUid != user.uid) {
+      _mqttService.disconnect();
+      _lastSnapshotSampleKey = null;
+      _activeUid = user.uid;
+    }
+    debugPrint('[EventLogger] Firebase Auth listener active');
+    try {
+      final role = await _firebaseService.roleUntukUid(user.uid);
+      if (generation != _authGeneration ||
+          _firebaseService.userSaatIni?.uid != user.uid) {
+        return;
+      }
+      final connected = await _mqttService.connectForRole(role, user.uid);
+      if (!connected) {
+        debugPrint('[EventLogger] MQTT belum terhubung: '
+            '${_mqttService.pesanKoneksi ?? _mqttService.errorTerakhir}');
+      }
+      unawaited(_catatSnapshotScada());
+    } catch (error) {
+      debugPrint('[EventLogger] Gagal memulai sesi MQTT: $error');
+    }
   }
 
   Future<void> _catatSnapshotScada() async {
+    final data = _mqttService.dataSensorTerbaru;
     if (!_aktif ||
-        _mqttService.dataSensorTerbaru == null ||
+        !_mqttService.terhubung ||
+        !_mqttService.subscriptionReady ||
+        _mqttService.dataBasi ||
+        data == null ||
         _snapshotSedangDitulis) {
       return;
     }
 
+    final sampleKey = '${data.timestampMs}:'
+        '${data.teganganSumber}:${data.teganganBeban}:'
+        '${data.arusSumber}:${data.arusBeban}:${data.bitmaskKualitas}';
+    if (sampleKey == _lastSnapshotSampleKey) return;
+
     _snapshotSedangDitulis = true;
     try {
       await _firebaseService.catatSnapshotScada(
-        data: _mqttService.dataSensorTerbaru!,
+        data: data,
+        diterimaPada: _mqttService.terakhirDataDiterima!,
         statusLru: _namaStatus(_mqttService.lruState),
         statusCom: _namaStatus(_mqttService.comState),
         statusLbs: _mqttService.statusLbs,
       );
+      _lastSnapshotSampleKey = sampleKey;
       debugPrint(
         '[Firebase] Snapshot SCADA berhasil ditulis '
         '(total: ${_firebaseService.jumlahSnapshotBerhasil}).',
@@ -100,22 +152,39 @@ class EventLogger {
   }) {
     if (sekarang == LinkState.fail &&
         (sebelumnya == LinkState.normal || sebelumnya == LinkState.unknown)) {
-      unawaited(_firebaseService.catatEvent(
+      unawaited(_catatEventSafely(
         jenis: 'ALARM',
         keterangan: alarm,
-        kodeUnik: kodeUnik,
+        kodeUnik: '${kodeUnik}_${DateTime.now().millisecondsSinceEpoch}',
       ));
     } else if (sebelumnya == LinkState.fail && sekarang == LinkState.normal) {
-      unawaited(_firebaseService.catatEvent(
+      unawaited(_catatEventSafely(
         jenis: 'STATUS',
         keterangan: normal,
       ));
     }
   }
 
+  Future<void> _catatEventSafely({
+    required String jenis,
+    required String keterangan,
+    String? kodeUnik,
+  }) async {
+    try {
+      await _firebaseService.catatEvent(
+        jenis: jenis,
+        keterangan: keterangan,
+        kodeUnik: kodeUnik,
+      );
+    } catch (error) {
+      debugPrint('[EventLogger] Gagal menyimpan event $jenis: $error');
+    }
+  }
+
   void dispose() {
     _snapshotTimer.cancel();
     _mqttService.removeListener(_mqttListener);
-    _authSubscription.cancel();
+    unawaited(_authSubscription.cancel());
+    _mqttService.disconnect();
   }
 }

@@ -10,7 +10,6 @@
 library;
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -21,12 +20,13 @@ class FirebaseService extends ChangeNotifier {
       '458957628300-bb44js34pdarnr5httlvv2i8njol352t.apps.googleusercontent.com';
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final DatabaseReference _db = FirebaseDatabase.instanceFor(
-    app: Firebase.app(),
-    databaseURL:
-        'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
-  ).ref();
+  final DatabaseReference _db = FirebaseDatabase.instance.ref();
+  late final Stream<bool> _koneksiDatabase = _db
+      .child('.info/connected')
+      .onValue
+      .map((event) => event.snapshot.value == true);
   DateTime? _terakhirUpayaTulis;
+  DateTime? _terakhirTulisBerhasil;
   bool? _hasilTulisTerakhir;
   String? _errorTerakhirDatabase;
   int _jumlahSnapshotBerhasil = 0;
@@ -34,12 +34,14 @@ class FirebaseService extends ChangeNotifier {
 
   User? get userSaatIni => _auth.currentUser;
   DateTime? get terakhirUpayaTulis => _terakhirUpayaTulis;
+  DateTime? get terakhirTulisBerhasil => _terakhirTulisBerhasil;
   bool? get hasilTulisTerakhir => _hasilTulisTerakhir;
   String? get errorTerakhirDatabase => _errorTerakhirDatabase;
   int get jumlahSnapshotBerhasil => _jumlahSnapshotBerhasil;
   int get jumlahCatatanStreamTerakhir => _jumlahCatatanStreamTerakhir;
 
   Stream<User?> get perubahanUser => _auth.authStateChanges();
+  Stream<bool> get koneksiDatabase => _koneksiDatabase;
 
   Future<UserCredential> daftarDenganEmail(
       String email, String password) async {
@@ -119,35 +121,33 @@ class FirebaseService extends ChangeNotifier {
       final cred = await loginDenganEmail(email, password);
       final uid = cred.user?.uid;
       if (uid == null) return null;
-
-      final snapshot = await _db.child('users/$uid').get();
-      if (!snapshot.exists) {
-        debugPrint('[Firebase] User $uid tidak punya profil di database; gunakan default operator.');
-        return UserRole.operator;
-      }
-
-      final data = snapshot.value;
-      if (data is! Map) {
-        debugPrint('[Firebase] Profil user $uid bukan objek map.');
-        return UserRole.operator;
-      }
-
-      final roleValue = data['role'];
-      if (roleValue is! String) {
-        debugPrint('[Firebase] Role user $uid tidak valid atau kosong.');
-        return UserRole.operator;
-      }
-
-      final roleStr = roleValue.trim().toLowerCase();
-      debugPrint('[Firebase] Login berhasil; role=$roleStr.');
-      return roleStr == 'manager' ? UserRole.manager : UserRole.operator;
+      return await roleUntukUid(uid);
     } on FirebaseAuthException catch (e) {
       debugPrint('[Firebase] Login gagal: ${e.code}');
       return null;
     } on FirebaseException catch (e) {
-      debugPrint('[Firebase] Login gagal saat membaca profil: ${e.code} - ${e.message}');
+      debugPrint(
+          '[Firebase] Login gagal saat membaca profil: ${e.code} - ${e.message}');
       return null;
     }
+  }
+
+  Future<UserRole> roleUntukUid(String uid) async {
+    final snapshot = await _db.child('users/$uid').get();
+    if (!snapshot.exists) {
+      debugPrint(
+          '[Firebase] Profil $uid tidak ditemukan; role default operator.');
+      return UserRole.operator;
+    }
+    final data = snapshot.value;
+    final roleValue = data is Map ? data['role'] : null;
+    if (roleValue is! String) {
+      debugPrint('[Firebase] Role $uid tidak valid; role default operator.');
+      return UserRole.operator;
+    }
+    final role = roleValue.trim().toLowerCase();
+    debugPrint('[Firebase] Role sesi dimuat: $role.');
+    return role == 'manager' ? UserRole.manager : UserRole.operator;
   }
 
   Future<void> logout() async {
@@ -172,7 +172,9 @@ class FirebaseService extends ChangeNotifier {
     String? kodeUnik,
   }) async {
     final user = _auth.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      throw StateError('Pengguna belum login ke Firebase.');
+    }
 
     String nama = 'Sistem';
     if (jenis == 'PERINTAH') {
@@ -197,12 +199,7 @@ class FirebaseService extends ChangeNotifier {
         : _db.child(
             'data_activity/evt_${DateTime.now().millisecondsSinceEpoch ~/ 1000}_$kodeUnik',
           );
-    try {
-      await reference.set(data);
-    } on FirebaseException catch (error) {
-      if (error.code == 'permission-denied' && kodeUnik != null) return;
-      rethrow;
-    }
+    await _tulis(reference, data, path: 'data_activity', uid: user.uid);
   }
 
   /// Kompatibilitas pemanggil lama untuk pencatatan perintah NO/NC.
@@ -218,6 +215,7 @@ class FirebaseService extends ChangeNotifier {
 
   Future<void> catatSnapshotScada({
     required SensorData data,
+    required DateTime diterimaPada,
     required String statusLru,
     required String statusCom,
     required String statusLbs,
@@ -233,6 +231,8 @@ class FirebaseService extends ChangeNotifier {
 
     final dataSnapshot = {
       'timestamp': ServerValue.timestamp,
+      'device_ts_ms': data.timestampMs,
+      'received_at': diterimaPada.millisecondsSinceEpoch,
       'jenis': 'SCADA_UPDATE',
       'keterangan': 'Pembaruan data SCADA otomatis setiap 10 detik',
       'oleh_uid': user.uid,
@@ -249,18 +249,82 @@ class FirebaseService extends ChangeNotifier {
     };
 
     try {
+      debugPrint('[Firebase] WRITE STARTED path=data_activity uid=${user.uid}');
       await _db.child('data_activity').push().set(dataSnapshot);
       _hasilTulisTerakhir = true;
       _errorTerakhirDatabase = null;
       _jumlahSnapshotBerhasil++;
+      _terakhirTulisBerhasil = DateTime.now();
+      notifyListeners();
+      debugPrint('[Firebase] WRITE SUCCESS path=data_activity uid=${user.uid}');
     } on FirebaseException catch (error) {
       _hasilTulisTerakhir = false;
       _errorTerakhirDatabase =
           'Firebase ${error.code}: ${error.message ?? 'tanpa pesan'}';
+      notifyListeners();
+      debugPrint('[Firebase] WRITE FAILED code=${error.code} '
+          'path=data_activity uid=${user.uid}');
       rethrow;
     } catch (error) {
       _hasilTulisTerakhir = false;
       _errorTerakhirDatabase = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<String> ujiTulisDatabase() async {
+    if (!kDebugMode) {
+      throw StateError('Tes tulis Firebase hanya tersedia pada mode debug.');
+    }
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('Pengguna belum login ke Firebase.');
+
+    final reference = _db.child('data_activity').push();
+    final data = {
+      'timestamp': ServerValue.timestamp,
+      'jenis': 'STATUS',
+      'keterangan': 'FIREBASE_WRITE_TEST',
+      'oleh_uid': user.uid,
+      'oleh_nama': 'Development test',
+      'sumber': 'mobile',
+    };
+    debugPrint('[Firebase Test] Authentication OK uid=${user.uid}');
+    debugPrint('[Firebase Test] WRITE STARTED path=data_activity');
+    await _tulis(reference, data, path: 'data_activity', uid: user.uid);
+    debugPrint('[Firebase Test] WRITE SUCCESS record=${reference.key}');
+    return reference.key!;
+  }
+
+  Future<void> _tulis(
+    DatabaseReference reference,
+    Map<String, dynamic> data, {
+    required String path,
+    required String uid,
+  }) async {
+    _terakhirUpayaTulis = DateTime.now();
+    _hasilTulisTerakhir = null;
+    try {
+      debugPrint('[Firebase] WRITE STARTED path=$path uid=$uid');
+      await reference.set(data);
+      _hasilTulisTerakhir = true;
+      _errorTerakhirDatabase = null;
+      _terakhirTulisBerhasil = DateTime.now();
+      notifyListeners();
+      debugPrint('[Firebase] WRITE SUCCESS path=$path uid=$uid');
+    } on FirebaseException catch (error) {
+      _hasilTulisTerakhir = false;
+      _errorTerakhirDatabase =
+          'Firebase ${error.code}: ${error.message ?? 'tanpa pesan'}';
+      notifyListeners();
+      debugPrint('[Firebase] WRITE FAILED code=${error.code} '
+          'path=$path uid=$uid');
+      rethrow;
+    } catch (error) {
+      _hasilTulisTerakhir = false;
+      _errorTerakhirDatabase = error.toString();
+      notifyListeners();
+      debugPrint('[Firebase] WRITE FAILED path=$path uid=$uid: $error');
       rethrow;
     }
   }

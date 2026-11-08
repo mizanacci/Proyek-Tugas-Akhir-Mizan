@@ -54,7 +54,8 @@ class DefaultFirebaseOptions {
     appId: '1:458957628300:android:cb38f13c387d3c71cfeca9',
     messagingSenderId: '458957628300',
     projectId: 'scada-mizan-ta',
-    databaseURL: 'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'scada-mizan-ta.firebasestorage.app',
   );
   static const FirebaseOptions web = FirebaseOptions(
@@ -63,7 +64,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '458957628300',
     projectId: 'scada-mizan-ta',
     authDomain: 'scada-mizan-ta.firebaseapp.com',
-    databaseURL: 'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'scada-mizan-ta.firebasestorage.app',
   );
 }

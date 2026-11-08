@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/mqtt_service.dart';
 import '../services/firebase_service.dart';
-import '../models/sensor_data.dart';
 import '../widgets/status_link_tile.dart';
 
 class KontrolMonitoringLbsScreen extends StatefulWidget {
@@ -22,29 +21,6 @@ class KontrolMonitoringLbsScreen extends StatefulWidget {
 
 class _KontrolMonitoringLbsScreenState
     extends State<KontrolMonitoringLbsScreen> {
-  @override
-  void initState() {
-    super.initState();
-    _pastikanTerhubungMqtt();
-  }
-
-  // Layar ini khusus Operator (tidak pernah dinavigasi dari menu Manager,
-  // lihat menu_manager_screen.dart) — kredensial operator dipakai langsung
-  // tanpa perlu parameter role seperti di monitoring_screen.dart. Dulu
-  // layar ini TIDAK memastikan koneksinya sendiri, hanya mengasumsikan
-  // sudah tersambung dari layar Monitoring yang mungkin belum pernah
-  // dibuka — diperbaiki agar mandiri.
-  Future<void> _pastikanTerhubungMqtt() async {
-    final mqtt = context.read<MqttService>();
-    if (!mqtt.terhubung) {
-      final firebaseUser = context.read<FirebaseService>().userSaatIni;
-      await mqtt.connectForRole(
-        UserRole.operator,
-        firebaseUser?.uid ?? DateTime.now().millisecondsSinceEpoch.toString(),
-      );
-    }
-  }
-
   Future<void> _kirimPerintah(BuildContext context, String perintah) async {
     final konfirmasi = await showDialog<bool>(
       context: context,
@@ -63,38 +39,29 @@ class _KontrolMonitoringLbsScreenState
     );
     if (konfirmasi != true || !context.mounted) return;
 
+    final mqtt = context.read<MqttService>();
+    final firebase = context.read<FirebaseService>();
+    final published = mqtt.kirimPerintahRelay(perintah);
+    final detail = published
+        ? 'PUBLISHED: perintah $perintah dikirim ke MQTT; menunggu konfirmasi PLC.'
+        : 'REJECTED: perintah $perintah tidak dipublikasikan. '
+            '${mqtt.alasanTidakBisaKirim ?? mqtt.errorTerakhir ?? 'Kegagalan publish MQTT.'}';
     try {
-      final mqtt = context.read<MqttService>();
-      if (!mqtt.kirimPerintahRelay(perintah)) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                mqtt.alasanTidakBisaKirim ??
-                    'Perintah tidak dapat dikirim saat ini.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
-      await context.read<FirebaseService>().catatDataActivity(
-            aksi: perintah,
-            sumber: 'mobile',
-          );
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Perintah $perintah terkirim.')),
-        );
-      }
+      await firebase.catatEvent(jenis: 'PERINTAH', keterangan: detail);
     } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal mengirim perintah: $error')),
-        );
-      }
+      debugPrint('[Kontrol] Gagal mencatat aktivitas perintah: $error');
     }
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(published
+            ? 'Perintah dipublikasikan ke MQTT; menunggu feedback PLC.'
+            : mqtt.alasanTidakBisaKirim ??
+                mqtt.errorTerakhir ??
+                'Perintah ditolak.'),
+      ),
+    );
   }
 
   @override

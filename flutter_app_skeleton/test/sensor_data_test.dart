@@ -43,4 +43,20 @@ void main() {
       throwsA(isA<FormatException>()),
     );
   });
+
+  test('rejects null and non-finite numeric values', () {
+    for (final invalid in <Object?>[null, double.nan, double.infinity]) {
+      expect(
+        () => SensorData.fromJson({
+          'v_sumber': invalid,
+          'v_beban': 220,
+          'i_sumber': 0,
+          'i_beban': 0,
+          'kualitas': 0,
+          'ts': 12345,
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    }
+  });
 }

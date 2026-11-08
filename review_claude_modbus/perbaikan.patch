@@ -1,0 +1,80 @@
+--- a/firmware_esp32/src/main.cpp	2026-10-24 03:47:33.192572775 +0000
++++ b/firmware_esp32/src/main.cpp	2026-10-29 06:02:47.793386293 +0000
+@@ -87,7 +87,7 @@
+       HasilSensor hasil = bacaSemuaSensor();
+       unsigned long durasiBacaSensor = micros() - mulaiBacaSensor;
+       modbusUpdateHasilSensor(hasil);
+-      modbusUpdateLRUFail(statusMqttTerhubung);  // baca status dari Core 0 (volatile bool, aman)
++      modbusUpdateLRUFail(!statusMqttTerhubung);  // parameter fungsi = statusFail: FAIL bila MQTT TIDAK terhubung (IREG 5: 0 = NORMAL, 1 = FAIL)
+ 
+       statusComFailEstimasiLokal = modbusEstimasiComFailLokal();
+       if (++jumlahSiklus % 5 == 0) {
+--- a/01_Panduan_Wiring.md	2026-10-24 03:47:33.191030047 +0000
++++ b/01_Panduan_Wiring.md	2026-10-29 06:02:47.793899788 +0000
+@@ -24,7 +24,7 @@
+ | Analog (ADS1115) | ACS712 sisi beban | Kanal A3 |
+ | Serial (ESP32-S3 ↔ PLC) | MAX3232 TXD/RXD/GND | UART: TX=GPIO17, RX=GPIO18 |
+ 
+-> Alokasi input/output digital PLC mengikuti Tabel 3.9 pada proposal TA. Peta register Modbus dan penjelasan desain lengkap ada di `firmware_esp32/README.md`.
++> Alokasi input/output digital PLC mengikuti Tabel 3.15 dan 3.16 pada draft TA versi 2. Peta register Modbus dan penjelasan desain lengkap ada di `firmware_esp32/README.md`.
+ 
+ ---
+ 
+@@ -112,15 +112,16 @@
+ 
+ | Sisi TTL (ke ESP32-S3) | Sisi RS-232C (ke PLC, konektor DB9) |
+ |---|---|
+-| VCC → 3,3V ESP32-S3 | Pin 2 (RD/RXD PLC) ← TXD MAX3232 |
+-| GND → GND ESP32-S3 (common ground) | Pin 3 (SD/TXD PLC) → RXD MAX3232 |
+-| RXD (MAX3232) ← GPIO18 ESP32-S3 | Pin 5 (SG — signal ground PLC) — GND |
+-| TXD (MAX3232) → GPIO17 ESP32-S3 | — |
++| VCC → 3,3V ESP32-S3 | Pin 2 (SD/TXD PLC) → sisi terima RS-232 modul MAX3232 (R1IN) |
++| GND → GND ESP32-S3 (common ground) | Pin 3 (RD/RXD PLC) ← sisi kirim RS-232 modul MAX3232 (T1OUT) |
++| GPIO17 (TX ESP32-S3) → pin RXD modul (T1IN) | Pin 9 (SG — signal ground PLC) — GND modul |
++| GPIO18 (RX ESP32-S3) ← pin TXD modul (R1OUT) | — |
+ 
+ **Catatan penting:**
+ - **TXD sisi satu tersambung ke RXD sisi lain, dan sebaliknya** (silang, bukan lurus). Bila komunikasi Modbus RTU gagal total setelah pengawatan, ini penyebab tersering pertama untuk dicek.
+ - GPIO17/18 dipilih khusus karena berada di luar rentang I2C (GPIO8/9), di luar pin *strapping* (GPIO0/3/45/46), dan di luar pin USB native ESP32-S3 (GPIO19/20) — jangan dipindah ke pin lain tanpa mengecek ulang keempat kategori ini.
+-- Konektor DB9 PLC memakai pin 2 (RD), pin 3 (SD), dan pin 5 (SG) sesuai *CP1E CPU Unit Software User's Manual* (Cat. No. W480). Pin lain pada DB9 (RS/CS/DR/ER) tidak diperlukan untuk mode 3-kabel ini.
++- Konektor DB9 PLC (RS-232C bawaan CP1E-N30DR-A) memakai pin 2 (SD), pin 3 (RD), dan pin 9 (SG) sesuai datasheet CP1E Omron (P061); pin 5 adalah CS (CTS) dan **bukan** SG. Cocokkan sekali lagi dengan *CP1E CPU Unit Hardware User's Manual* (Cat. No. W479) sebelum menyolder. Pin lain (RS/CS/DR/ER) tidak diperlukan untuk mode 3-kabel ini.
++- Label RXD/TXD pada modul MAX3232 mengikuti sudut pandang mikrokontroler: pin RXD modul menerima dari TX ESP32-S3 (GPIO17), pin TXD modul mengirim ke RX ESP32-S3 (GPIO18). Bila modulmu berlabel sebaliknya, ikuti aturannya: TX ESP32-S3 masuk ke input TTL modul, RX ESP32-S3 datang dari output TTL modul.
+ - Gunakan kabel pendek (idealnya <3 meter, sesuai batas jarak transmisi RS-232C ±15m pada datasheet Omron P061-E1-15) untuk keandalan sinyal.
+ 
+ ---
+@@ -131,8 +132,8 @@
+ |---|---|---|
+ | LOCK | Merah | 0.00 |
+ | UNLOCK | Hijau | 0.01 |
+-| NC | Hijau | 0.02 |
+-| NO | Merah | 0.03 |
++| NO (buka) | Merah | 0.02 |
++| NC (tutup) | Hijau | 0.03 |
+ 
+ | Aktuator | Alamat Output PLC |
+ |---|---|
+@@ -151,10 +152,10 @@
+ |---|---|---|
+ | PLC Input | LOCK | 0.00 |
+ | PLC Input | UNLOCK | 0.01 |
+-| PLC Input | NC | 0.02 |
+-| PLC Input | NO | 0.03 |
++| PLC Input | NO (buka) | 0.02 |
++| PLC Input | NC (tutup) | 0.03 |
+ | PLC Output | Koil Relay MY2N | 100.00 |
+-| PLC Serial | RS-232C bawaan (DB9 pin 2/3/5) | Port bawaan CPU |
++| PLC Serial | RS-232C bawaan (DB9: pin 2 SD, pin 3 RD, pin 9 SG) | Port bawaan CPU |
+ | ESP32-S3 I2C | SDA → ADS1115 | GPIO8 |
+ | ESP32-S3 I2C | SCL → ADS1115 | GPIO9 |
+ | ADS1115 | ZMPT101B sumber | A0 |
+@@ -174,7 +175,9 @@
+ - [ ] ADDR ADS1115 tersambung ke GND (alamat 0x48)
+ - [ ] Arah pemasangan ACS712 (panah arus) sesuai
+ - [ ] ZMPT101B tersambung paralel, bukan seri
+-- [ ] TXD/RXD MAX3232↔PLC tersambung silang
++- [ ] TXD/RXD MAX3232↔PLC tersambung silang: pin 2 PLC (SD) ke sisi terima modul, pin 3 PLC (RD) dari sisi kirim modul, pin 9 PLC (SG) ke GND (bukan pin 5)
++- [ ] GPIO17 (TX ESP32-S3) ke pin RXD modul dan GPIO18 (RX ESP32-S3) dari pin TXD modul
++- [ ] Uji loopback Modbus dari PC (QModMaster atau Modbus Poll, 9600 8N1, slave 1, Input Register 0-5) berhasil sebelum PLC disambungkan
+ - [ ] Tidak ada sinyal >3,3V yang masuk langsung ke pin GPIO ESP32-S3
+ - [ ] Polaritas catu daya koil relay benar
+ - [ ] Sistem dinyalakan bertahap (DC dahulu, AC terakhir) sesuai Bagian 1

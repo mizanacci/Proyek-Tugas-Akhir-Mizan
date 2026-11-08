@@ -2,6 +2,7 @@
 /// Operator mendapat kartu tambahan "Kontrol & Monitoring LBS" dibanding
 /// Manager — satu-satunya role yang bisa mengirim perintah NO/NC.
 /// Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

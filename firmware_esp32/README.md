@@ -66,10 +66,11 @@ batch, lalu menghitung RMS komponen AC. Gain dan offset ZMPT sumber/beban
 diterapkan secara terpisah. Nilai `BATAS_TEGANGAN_OFF` hanya mematikan residual
 di bawah ambang; bukan pengganti kalibrasi.
 
-Nilai `BATAS_NOISE_ARUS_A` pada template publik adalah 0,10 A sebagai titik
-awal agar beban kecil tidak otomatis dibuang seperti ambang 3 A sebelumnya.
-Nilai ini wajib disesuaikan setelah mengukur noise saat 0 A dan arus minimum
-yang perlu dideteksi. Varian ACS712, Vcc, rangkaian pembagi, dan sensitivitas
+Nilai `BATAS_NOISE_ARUS_A` default yang dipakai agar kondisi tanpa beban tetap
+0 A adalah 3 A. Nilai ini dipilih untuk menekan noise sensor ACS712 yang
+muncul saat tidak ada beban terpasang. Setelah pengukuran aktual dengan ammeter
+referensi, nilai ini dapat dikurangi sesuai ambang noise yang benar-benar
+terlihat di lapangan. Varian ACS712, Vcc, rangkaian pembagi, dan sensitivitas
 100 mV/A belum dapat diverifikasi dari source saja.
 
 Aktifkan `MODE_DEBUG_SENSOR` hanya saat diagnosis. Serial Monitor akan

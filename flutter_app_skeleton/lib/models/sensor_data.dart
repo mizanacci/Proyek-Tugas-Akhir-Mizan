@@ -4,6 +4,7 @@
 /// Struktur field HARUS sinkron dengan payload JSON yang dipublikasikan
 /// firmware ESP32 (lihat mqtt_handler.cpp, fungsi mqttPublishDataSensor,
 /// dan dokumen 04_Konfigurasi_HiveMQ.md Bagian 4).
+library;
 
 class SensorData {
   final double teganganSumber;

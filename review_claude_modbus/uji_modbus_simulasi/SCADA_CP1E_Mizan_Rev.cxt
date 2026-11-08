@@ -1,0 +1,955 @@
+﻿CXProgVer:="1.5";
+WrittenByCXPVersion:="9.73";
+FileType:=1;
+Created:="21 10 2026 4 4 52";
+Modified:="21 10 2026 4 4 52";
+Name:="SCADA_CP1E_LBS";
+Core:=
+BEGIN
+ CDMPath:="";
+END;
+ResourceCount:=1;
+Resource[0]:=
+BEGIN
+ Name:="NewResource1";
+ FBMemory:=
+ BEGIN
+  BR[0]:=",0";
+  BR[1]:=",0";
+  BR[3]:=",0";
+  BR[4]:=",0";
+  NumRegisters:=5;
+ END;
+ SFCMemory:=
+ BEGIN
+  BR[0]:=",-1";
+  BR[1]:=",-1";
+  NumRegisters:=2;
+ END;
+ PLC:=
+ BEGIN
+  Name:="PLC_SCADA";
+  Config:="[DEV]DEV:CP1E;CLOCK:TRUE;CPU:NA;GATE:FALSE;REMOTE:FALSE;UM:UM,0,18432,WORD,RW,1,RAM;[DRVR]PORT:OMR0;[NET]FRAME:1004;NET:SYNCUSB;TMO:2000;[PROJECT]HANDLE:3;KEY:!D0001;";
+  ProgramCheckOptions:=
+  BEGIN
+   CheckLevel:=0;
+   DuplicatedOutputBit:=true;
+   DuplicatedOutputWord:=true;
+   DuplicatedTIMCNT:=true;
+   BlockProgram:=false;
+   Subroutine:=true;
+   JMPJME:=true;
+   FORNEXT:=true;
+   STEPSNXT:=true;
+   ILILC:=true;
+   IFIEND:=true;
+   LOOPLEND:=true;
+   Stack:=true;
+   FALFALS:=true;
+   Marks:=true;
+   NoFuncCheck:=false;
+   Writetoarray:=false;
+   FORNEXT2:=false;
+  END;
+ END;
+ GlobalVariables:=
+ BEGIN
+  VariableList:=
+  BEGIN_LIST_$#[1]
+   PB_LOCK,0.00,BOOL,,Push button LOCK (Hot Line = LOCK);
+   PB_UNLOCK,0.01,BOOL,,Push button UNLOCK (Hot Line = UNLOCK);
+   PB_NO,0.02,BOOL,,Push button NO (buka) hardwired - aktif saat LOCK;
+   PB_NC,0.03,BOOL,,Push button NC (tutup) hardwired - aktif saat LOCK;
+   RELAY_MY2N,100.00,BOOL,,Koil relay MY2N: ON = tutup (NC) dan OFF = buka (NO);
+   HOT_LOCK,W0.00,BOOL,,Status Hot Line: 1 = LOCK dan 0 = UNLOCK;
+   HOT_UNLOCK,W0.01,BOOL,,Status Hot Line: 1 = UNLOCK (kebalikan HOT_LOCK);
+   CMD_NC_LOKAL,W0.03,BOOL,,Perintah tutup dari push button;
+   CMD_NO_LOKAL,W0.04,BOOL,,Perintah buka dari push button;
+   CMD_NC_HMI,W0.05,BOOL,,Perintah tutup dari HMI;
+   CMD_NO_HMI,W0.06,BOOL,,Perintah buka dari HMI;
+   CMD_NC_REMOTE,W0.07,BOOL,,Perintah tutup dari aplikasi (pulsa 1 scan);
+   CMD_NO_REMOTE,W0.08,BOOL,,Perintah buka dari aplikasi (pulsa 1 scan);
+   GATE_REMOTE,W0.09,BOOL,,Syarat jalur remote terpenuhi;
+   LRUFAIL,W1.00,BOOL,,LRUFail: 1 = FAIL;
+   COMFAIL,W1.01,BOOL,,COMFail: 1 = FAIL;
+   MB_BUSY,W2.00,BOOL,,Transaksi Modbus sedang berjalan;
+   MB_OK,W2.01,BOOL,,Pulsa transaksi Modbus selesai normal;
+   MB_ERR,W2.02,BOOL,,Pulsa transaksi Modbus selesai error;
+   MB_TIMEOUT,W2.03,BOOL,,Pulsa timeout transaksi Modbus;
+   REMOTE_EVAL,W2.04,BOOL,,Pulsa evaluasi perintah remote;
+   ARUS_NORMAL,W3.04,BOOL,,Arus beban normal: ada arus dan di bawah ambang D122 (usulan);
+   I_GANGGUAN,W3.05,BOOL,,Arus Gangguan (I beban di atas ambang D122);
+   V_ABNORMAL,W3.06,BOOL,,Tegangan sumber di luar batas D120-D121;
+   LBS_SUSPECT,W3.07,BOOL,,Status LBS = SUSPECT (usulan);
+   Q_VSUM,W5.00,BOOL,,Kualitas V sumber: 1 = SUSPECT;
+   Q_VBEB,W5.01,BOOL,,Kualitas V beban: 1 = SUSPECT;
+   Q_ISUM,W5.02,BOOL,,Kualitas I sumber: 1 = SUSPECT;
+   Q_IBEB,W5.03,BOOL,,Kualitas I beban: 1 = SUSPECT;
+   HMI_NO,W10.00,BOOL,,Tombol NO di HMI (ditulis oleh HMI);
+   HMI_NC,W10.01,BOOL,,Tombol NC di HMI (ditulis oleh HMI);
+   MB_STEP,D100,WORD,,Langkah sequencer Modbus;
+   MB_STEP_NEXT,D105,WORD,,Langkah berikutnya sequencer Modbus;
+   V_SUMBER,D110,WORD,,IREG 0: tegangan sumber x100;
+   V_BEBAN,D111,WORD,,IREG 1: tegangan beban x100;
+   I_SUMBER,D112,WORD,,IREG 2: arus sumber x1000;
+   I_BEBAN,D113,WORD,,IREG 3: arus beban x1000;
+   KUALITAS_IREG4,D114,WORD,,IREG 4: bitmask kualitas;
+   LRUFAIL_IREG5,D115,WORD,,IREG 5: LRUFail (0 normal dan 1 fail);
+   CMD_HREG6,D116,WORD,,HREG 6: perintah remote (1 = NO dan 2 = NC);
+   BATAS_V_BAWAH,D120,WORD,,Batas bawah tegangan x100 (usulan 19800);
+   BATAS_V_ATAS,D121,WORD,,Batas atas tegangan x100 (usulan 24200);
+   AMBANG_I_GANGGUAN,D122,WORD,,Ambang Arus Gangguan x1000 (2000 = 2 A);
+   V_ADA_MIN,D123,WORD,,Tegangan dianggap ada x100 (usulan 5000);
+   I_GANGGUAN_NILAI,D131,WORD,,Nilai arus gangguan untuk HMI;
+END_LIST_$#[1];
+  VariableCount:=45;
+  VariableMultiCommentList:=
+  BEGIN_LIST_$#[2]
+  END_LIST_$#[2];
+  VariableMultiCommentCount:=0;
+  VariableMultiCommentTypeCount:=16;
+  VariablePredefinedMultiCommentList:=
+  BEGIN_LIST_$#[3]
+  END_LIST_$#[3];
+  VariablePredefinedMultiCommentCount:=0;
+  POUInstances:=
+  BEGIN
+   NumInstances:=0;
+  END;
+ END;
+ FunctionBlocks:=
+ BEGIN
+ END;
+ Programs:=
+ BEGIN
+  Program[0]:=
+  BEGIN
+   CompileInline:=0;
+   Name:="MAIN";
+   FileType:=2;
+   Created:="21 10 2026 4 4 52";
+   Modified:="21 10 2026 4 4 52";
+   Protection:=
+   BEGIN
+    Enabled:=0;
+   END;
+   LocalVariables:=
+   BEGIN
+    VariableList:=
+    BEGIN_LIST_$#[4]
+    END_LIST_$#[4];
+    VariableCount:=0;
+    VariableMultiCommentList:=
+    BEGIN_LIST_$#[5]
+    END_LIST_$#[5];
+    VariableMultiCommentCount:=0;
+    VariableMultiCommentTypeCount:=16;
+    POUInstances:=
+    BEGIN
+     NumInstances:=0;
+    END;
+   END;
+   TaskID:=256;
+   OpStart:=1;
+   Sections:=
+   BEGIN
+    SC:=2;
+    Sec[0]:=
+    BEGIN
+     IEC1131Type:=11;
+     CompileInline:=0;
+     SecType:=0;
+     SecName:="LOGIKA_UTAMA";
+     ProgramData:=
+     BEGIN
+      RC:=42;
+      R[0]:=
+      BEGIN
+       Com:="R00 Inisialisasi saat power-on";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[6]
+'  R0
+LD P_First_Cycle
+MOV(021) #0000 D100
+MOV(021) #0000 D105
+RSET W2.00
+RSET A640.00
+MOV(021) &19800 D120
+MOV(021) &24200 D121
+MOV(021) &2000 D122
+MOV(021) &5000 D123
+$?St$Bk?_#[6]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[1]:=
+      BEGIN
+       Com:="R01 Hot Line: pilih UNLOCK (PB_UNLOCK 0.01, PB_LOCK 0.00)";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[7]
+'  R0
+LD 0.01
+ANDNOT 0.00
+RSET W0.00
+$?St$Bk?_#[7]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[2]:=
+      BEGIN
+       Com:="R02 Hot Line: pilih LOCK, menang bila keduanya ditekan (PB_LOCK 0.00)";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[8]
+'  R0
+LD 0.00
+OR P_First_Cycle
+SET W0.00
+$?St$Bk?_#[8]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[3]:=
+      BEGIN
+       Com:="R03 Dekode LRUFail dari IREG 5";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[9]
+'  R0
+LD<>(305) D115 #0000
+OUT W1.00
+$?St$Bk?_#[9]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[4]:=
+      BEGIN
+       Com:="R04 Bit kualitas IREG 4 ke W5.00-W5.03";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[10]
+'  R0
+LD P_On
+MOV(021) D114 W5
+$?St$Bk?_#[10]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[5]:=
+      BEGIN
+       Com:="R05 Hot Line UNLOCK = kebalikan W0.00 (untuk HMI)";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[11]
+'  R0
+LDNOT W0.00
+OUT W0.01
+$?St$Bk?_#[11]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[6]:=
+      BEGIN
+       Com:="R10 Jeda polling 0,5 s";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[12]
+'  R0
+LD=(300) D100 #0000
+ANDNOT W2.00
+TIM 001 #5
+$?St$Bk?_#[12]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[7]:=
+      BEGIN
+       Com:="R11 Langkah 0: baca IREG 0-5 (FC 04, mulai 0, jumlah 6)";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[13]
+'  R0
+LD=(300) D100 #0000
+AND T001
+ANDNOT W2.00
+MOV(021) #0001 D1200
+MOV(021) #0004 D1201
+MOV(021) #0004 D1202
+MOV(021) #0000 D1203
+MOV(021) #0006 D1204
+SET A640.00
+SET W2.00
+$?St$Bk?_#[13]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[8]:=
+      BEGIN
+       Com:="R12 Langkah 1: baca HREG 6 (FC 03, mulai 6, jumlah 1)";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[14]
+'  R0
+LD=(300) D100 #0001
+ANDNOT W2.00
+MOV(021) #0001 D1200
+MOV(021) #0003 D1201
+MOV(021) #0004 D1202
+MOV(021) #0006 D1203
+MOV(021) #0001 D1204
+SET A640.00
+SET W2.00
+$?St$Bk?_#[14]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[9]:=
+      BEGIN
+       Com:="R13 Langkah 2: tulis HREG 6 = 0 (FC 06), acknowledge";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[15]
+'  R0
+LD=(300) D100 #0002
+ANDNOT W2.00
+MOV(021) #0001 D1200
+MOV(021) #0006 D1201
+MOV(021) #0004 D1202
+MOV(021) #0006 D1203
+MOV(021) #0000 D1204
+SET A640.00
+SET W2.00
+$?St$Bk?_#[15]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[10]:=
+      BEGIN
+       Com:="R14 Transaksi selesai: error";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[16]
+'  R0
+LD W2.00
+ANDNOT A640.00
+AND A640.02
+DIFU(013) W2.02
+$?St$Bk?_#[16]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[11]:=
+      BEGIN
+       Com:="R15 Transaksi selesai: normal";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[17]
+'  R0
+LD W2.00
+ANDNOT A640.00
+AND A640.01
+ANDNOT A640.02
+DIFU(013) W2.01
+$?St$Bk?_#[17]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[12]:=
+      BEGIN
+       Com:="R16 Batas waktu transaksi 2 s";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[18]
+'  R0
+LD W2.00
+TIM 002 #20
+$?St$Bk?_#[18]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[13]:=
+      BEGIN
+       Com:="R17 Pulsa timeout";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[19]
+'  R0
+LD T002
+DIFU(013) W2.03
+$?St$Bk?_#[19]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[14]:=
+      BEGIN
+       Com:="R18 Lepas transaksi (normal, error, atau timeout)";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[20]
+'  R0
+LD W2.01
+OR W2.02
+OR W2.03
+RSET W2.00
+RSET A640.00
+$?St$Bk?_#[20]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[15]:=
+      BEGIN
+       Com:="R20 Langkah 0 selesai: salin IREG 0-5 ke D110-D115";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[21]
+'  R0
+LD W2.01
+AND=(300) D100 #0000
+XFER(070) #0006 D1254 D110
+MOV(021) #0001 D105
+$?St$Bk?_#[21]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[16]:=
+      BEGIN
+       Com:="R21 Langkah 1 selesai: simpan HREG 6 di D116";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[22]
+'  R0
+LD W2.01
+AND=(300) D100 #0001
+MOV(021) D1254 D116
+$?St$Bk?_#[22]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[17]:=
+      BEGIN
+       Com:="R22 HREG 6 = 0: kembali ke langkah 0";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[23]
+'  R0
+LD W2.01
+AND=(300) D100 #0001
+AND=(300) D1254 #0000
+MOV(021) #0000 D105
+$?St$Bk?_#[23]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[18]:=
+      BEGIN
+       Com:="R23 HREG 6 tidak sama dengan 0: evaluasi perintah, lanjut ke langkah 2";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[24]
+'  R0
+LD W2.01
+AND=(300) D100 #0001
+AND<>(305) D1254 #0000
+MOV(021) #0002 D105
+OUT W2.04
+$?St$Bk?_#[24]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[19]:=
+      BEGIN
+       Com:="R24 Langkah 2 selesai (apa pun hasilnya): kembali ke 0";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[25]
+'  R0
+LD W2.01
+OR W2.02
+OR W2.03
+AND=(300) D100 #0002
+MOV(021) #0000 D105
+$?St$Bk?_#[25]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[20]:=
+      BEGIN
+       Com:="R25 Error atau timeout di langkah 0/1: kembali ke 0";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[26]
+'  R0
+LD W2.02
+OR W2.03
+ANDNOT W2.01
+AND<=(315) D100 #0001
+MOV(021) #0000 D105
+$?St$Bk?_#[26]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[21]:=
+      BEGIN
+       Com:="R26 Terapkan langkah berikutnya";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[27]
+'  R0
+LD W2.01
+OR W2.02
+OR W2.03
+MOV(021) D105 D100
+$?St$Bk?_#[27]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[22]:=
+      BEGIN
+       Com:="R30 Watchdog COMFail 5 s, di-reset tiap transaksi sukses";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[28]
+'  R0
+LDNOT W2.01
+TIM 000 #50
+$?St$Bk?_#[28]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[23]:=
+      BEGIN
+       Com:="R31 COMFail = FAIL bila watchdog habis";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[29]
+'  R0
+LD T000
+OUT W1.01
+$?St$Bk?_#[29]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[24]:=
+      BEGIN
+       Com:="R32 Penahan pemulihan 3 s [usulan]";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[30]
+'  R0
+LDNOT W1.01
+TIM 004 #30
+$?St$Bk?_#[30]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[25]:=
+      BEGIN
+       Com:="R40 Gerbang remote: UNLOCK, LRUFail dan COMFail normal";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[31]
+'  R0
+LDNOT W0.00
+ANDNOT W1.00
+ANDNOT W1.01
+AND T004
+OUT W0.09
+$?St$Bk?_#[31]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[26]:=
+      BEGIN
+       Com:="R41 Perintah remote NC (HREG 6 = 2)";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[32]
+'  R0
+LD W2.04
+AND=(300) D116 #0002
+AND W0.09
+OUT W0.07
+$?St$Bk?_#[32]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[27]:=
+      BEGIN
+       Com:="R42 Perintah remote NO (HREG 6 = 1)";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[33]
+'  R0
+LD W2.04
+AND=(300) D116 #0001
+AND W0.09
+OUT W0.08
+$?St$Bk?_#[33]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[28]:=
+      BEGIN
+       Com:="R43 NC lokal: PB_NC 0.03, hanya saat LOCK";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[34]
+'  R0
+LD 0.03
+AND W0.00
+OUT W0.03
+$?St$Bk?_#[34]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[29]:=
+      BEGIN
+       Com:="R44 NO lokal: PB_NO 0.02, hanya saat LOCK";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[35]
+'  R0
+LD 0.02
+AND W0.00
+OUT W0.04
+$?St$Bk?_#[35]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[30]:=
+      BEGIN
+       Com:="R45 NC dari HMI, hanya saat UNLOCK";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[36]
+'  R0
+LD W10.01
+ANDNOT W0.00
+OUT W0.05
+$?St$Bk?_#[36]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[31]:=
+      BEGIN
+       Com:="R46 NO dari HMI, hanya saat UNLOCK";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[37]
+'  R0
+LD W10.00
+ANDNOT W0.00
+OUT W0.06
+$?St$Bk?_#[37]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[32]:=
+      BEGIN
+       Com:="R50 Tutup: SET koil relay";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[38]
+'  R0
+LD W0.03
+OR W0.05
+OR W0.07
+SET 100.00
+$?St$Bk?_#[38]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[33]:=
+      BEGIN
+       Com:="R51 Buka: RSET koil relay, setelah R50 sehingga buka menang";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[39]
+'  R0
+LD W0.04
+OR W0.06
+OR W0.08
+RSET 100.00
+$?St$Bk?_#[39]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[34]:=
+      BEGIN
+       Com:="R60 Arus Gangguan: I beban di atas ambang";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[40]
+'  R0
+LD>=(325) D113 D122
+OUT W3.05
+$?St$Bk?_#[40]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[35]:=
+      BEGIN
+       Com:="R61 Nilai Arus Gangguan ke D131";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[41]
+'  R0
+LD W3.05
+MOV(021) D113 D131
+$?St$Bk?_#[41]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[36]:=
+      BEGIN
+       Com:="R62 Tanpa gangguan: D131 = 0";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[42]
+'  R0
+LDNOT W3.05
+MOV(021) #0000 D131
+$?St$Bk?_#[42]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[37]:=
+      BEGIN
+       Com:="R63 Tegangan sumber di luar batas";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[43]
+'  R0
+LD<(310) D110 D120
+OR>(320) D110 D121
+OUT W3.06
+$?St$Bk?_#[43]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[38]:=
+      BEGIN
+       Com:="R64 Koil dan tegangan beban tidak cocok [usulan]";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[44]
+'  R0
+LD>=(325) D110 D123
+AND 100.00
+AND<(310) D111 D123
+LD>=(325) D110 D123
+ANDNOT 100.00
+AND>=(325) D111 D123
+ORLD
+TIM 003 #20
+$?St$Bk?_#[44]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[39]:=
+      BEGIN
+       Com:="R65 Status LBS = SUSPECT [usulan]";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[45]
+'  R0
+LD T003
+OR W5.00
+OR W5.01
+OUT W3.07
+$?St$Bk?_#[45]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[40]:=
+      BEGIN
+       Com:="R66 Arus beban normal: ada arus dan di bawah ambang [usulan]";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[46]
+'  R0
+LD>(320) D113 #0000
+AND<(310) D113 D122
+OUT W3.04
+$?St$Bk?_#[46]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[41]:=
+      BEGIN
+       Com:="";
+       Flags:="1,0";
+       FBversion:="";
+       SL:="";
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+     END;
+    END;
+    Sec[1]:=
+    BEGIN
+     IEC1131Type:=11;
+     CompileInline:=0;
+     SecType:=0;
+     SecName:="END";
+     ProgramData:=
+     BEGIN
+      RC:=2;
+      R[0]:=
+      BEGIN
+       Com:="";
+       Flags:="1,0";
+       FBversion:="";
+       SL:=
+$?St$Bk?_#[47]
+END(001)
+$?St$Bk?_#[47]
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+      R[1]:=
+      BEGIN
+       Com:="";
+       Flags:="1,0";
+       FBversion:="";
+       SL:="";
+       AtchCmts:=
+       BEGIN
+        CC:=0;
+       END;
+      END;
+     END;
+    END;
+   END;
+  END;
+ END;
+END;

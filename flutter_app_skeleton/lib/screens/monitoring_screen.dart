@@ -3,6 +3,7 @@
 /// keduanya di sini — kontrol relay hanya ada di kontrol_monitoring_lbs_screen.dart
 /// untuk membedakan tegas layar "lihat" vs layar "lihat + kendalikan").
 /// Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

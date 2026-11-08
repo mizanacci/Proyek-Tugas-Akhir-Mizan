@@ -47,9 +47,9 @@
 // RMS firmware menghilangkan DC bias secara otomatis dari setiap batch sampel,
 // sehingga tidak lagi mengasumsikan titik tengah = ADC/2.
 #define ACS712_MV_PER_AMP   100.0f
-// Nilai awal rendah agar arus kecil tidak dibuang. Ukur noise 0 A dan
-// sesuaikan setelah pengujian fisik; ini bukan kalibrasi final.
-#define BATAS_NOISE_ARUS_A  0.10f
+// Saat beban benar-benar tidak terpasang, angka sekitar 1.5 A pada sensor ACS712
+// umumnya merupakan noise. Gunakan ambang 3 A agar arus nol tetap 0 A.
+#define BATAS_NOISE_ARUS_A  3.0f
 #define BATAS_TEGANGAN_OFF  20.0f
 
 #define JUMLAH_SAMPEL_RMS   50

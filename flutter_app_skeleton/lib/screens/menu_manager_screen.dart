@@ -2,6 +2,7 @@
 /// Manager bersifat view-only: Monitoring dan Data Activity, TANPA akses
 /// kontrol relay (lihat kontrol_monitoring_lbs_screen.dart — khusus Operator).
 /// Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

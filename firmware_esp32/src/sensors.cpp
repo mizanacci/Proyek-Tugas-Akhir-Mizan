@@ -12,7 +12,7 @@
 static Adafruit_ADS1115 ads;
 
 #ifndef BATAS_NOISE_ARUS_A
-#define BATAS_NOISE_ARUS_A 0.10f
+#define BATAS_NOISE_ARUS_A 3.0f
 #endif
 
 #ifndef BATAS_TEGANGAN_OFF

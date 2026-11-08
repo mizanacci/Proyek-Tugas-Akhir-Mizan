@@ -1,6 +1,7 @@
 /// data_activity_screen.dart — Layar Data Activity (Gambar 3.14 mock-up proposal)
 /// Menampilkan log audit read-only dari Firebase Realtime Database.
 /// Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
+library;
 
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';

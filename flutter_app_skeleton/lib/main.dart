@@ -1,5 +1,6 @@
 /// main.dart — Entry point aplikasi & routing berbasis role
 /// Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

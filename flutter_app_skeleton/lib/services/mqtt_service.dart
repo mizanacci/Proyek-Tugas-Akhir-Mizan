@@ -5,6 +5,7 @@
 /// mekanisme konfigurasi yang tidak ter-commit ke Git sebelum implementasi
 /// akhir (mis. package flutter_dotenv, atau --dart-define saat build).
 /// JANGAN commit kredensial asli ke repository publik/kampus.
+library;
 
 import 'dart:async';
 import 'dart:convert';

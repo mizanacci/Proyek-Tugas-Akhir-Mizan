@@ -1,5 +1,6 @@
 /// login_screen.dart — Layar Login (Gambar 3.9 mock-up proposal)
 /// Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -25,29 +26,37 @@ class _LoginScreenState extends State<LoginScreen> {
       _pesanError = null;
     });
 
-    final firebaseService = context.read<FirebaseService>();
-    final role = await firebaseService.login(
-      _emailController.text.trim(),
-      _passwordController.text,
-    );
+    try {
+      final firebaseService = context.read<FirebaseService>();
+      final role = await firebaseService.login(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
 
-    if (!mounted) return;
-    setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() => _loading = false);
 
-    if (role == null) {
-      setState(() => _pesanError =
-          'Login gagal — periksa email/kata sandi, atau akun belum memiliki role terdaftar.');
-      return;
-    }
+      if (role == null) {
+        setState(() => _pesanError =
+            'Login gagal — periksa email/kata sandi, atau Firebase Auth/Realtime Database tidak bisa diakses.');
+        return;
+      }
 
-    // Routing berdasarkan role — lihat main.dart untuk daftar rute.
+      // Routing berdasarkan role — lihat main.dart untuk daftar rute.
     // Koneksi MQTT (MqttService.connect) dilakukan di masing-masing layar
     // Menu, BUKAN di sini, agar kredensial MQTT bisa disesuaikan per-role
     // bila diperlukan (lihat catatan 04_Konfigurasi_HiveMQ.md Bagian 2).
-    if (role == UserRole.manager) {
-      Navigator.of(context).pushReplacementNamed('/menu-manager');
-    } else {
-      Navigator.of(context).pushReplacementNamed('/menu-operator');
+      if (role == UserRole.manager) {
+        Navigator.of(context).pushReplacementNamed('/menu-manager');
+      } else {
+        Navigator.of(context).pushReplacementNamed('/menu-operator');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _pesanError = 'Tidak dapat terhubung ke Firebase. Periksa internet dan izin database.';
+      });
     }
   }
 

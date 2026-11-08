@@ -3,6 +3,7 @@
 /// hanya dapat diakses lewat menu_operator_screen.dart (Manager tidak
 /// mendapat kartu menu ke layar ini, lihat menu_manager_screen.dart).
 /// Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

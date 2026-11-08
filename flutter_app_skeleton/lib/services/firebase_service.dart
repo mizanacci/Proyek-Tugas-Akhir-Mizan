@@ -7,6 +7,7 @@
 ///   /data_activity/<pushId>/{timestamp, jenis, keterangan, oleh_uid, oleh_nama, sumber}
 ///   /settings/threshold_alarm/{tegangan_min, tegangan_max, arus_max}
 ///   /settings/durasi_timeout
+library;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -119,16 +120,32 @@ class FirebaseService extends ChangeNotifier {
       final uid = cred.user?.uid;
       if (uid == null) return null;
 
-      final snapshot = await _db.child('users/$uid/role').get();
+      final snapshot = await _db.child('users/$uid').get();
       if (!snapshot.exists) {
-        debugPrint('[Firebase] User $uid tidak punya field role di database.');
-        return null;
+        debugPrint('[Firebase] User $uid tidak punya profil di database; gunakan default operator.');
+        return UserRole.operator;
       }
-      final roleStr = snapshot.value as String;
+
+      final data = snapshot.value;
+      if (data is! Map) {
+        debugPrint('[Firebase] Profil user $uid bukan objek map.');
+        return UserRole.operator;
+      }
+
+      final roleValue = data['role'];
+      if (roleValue is! String) {
+        debugPrint('[Firebase] Role user $uid tidak valid atau kosong.');
+        return UserRole.operator;
+      }
+
+      final roleStr = roleValue.trim().toLowerCase();
       debugPrint('[Firebase] Login berhasil; role=$roleStr.');
       return roleStr == 'manager' ? UserRole.manager : UserRole.operator;
     } on FirebaseAuthException catch (e) {
       debugPrint('[Firebase] Login gagal: ${e.code}');
+      return null;
+    } on FirebaseException catch (e) {
+      debugPrint('[Firebase] Login gagal saat membaca profil: ${e.code} - ${e.message}');
       return null;
     }
   }

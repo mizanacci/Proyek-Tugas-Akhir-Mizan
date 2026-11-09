@@ -27,8 +27,7 @@ class ScadaCommand {
   });
 
   factory ScadaCommand.fromEntry(String commandId, Object? value) {
-    if (value is! Map)
-    {
+    if (value is! Map) {
       throw const FormatException('Command must be an object.');
     }
     final data = Map<String, dynamic>.from(value);

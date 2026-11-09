@@ -1,5 +1,17 @@
 # Changelog Integrasi Firebase dan MQTT
 
+## 2026-11-09 - Batas Flutter dan backend
+
+- Alur runtime Flutter menggunakan Firebase Auth dan RTDB; `EventLogger` hanya
+  mengamati auth/profil dan tidak lagi mengelola koneksi MQTT atau snapshot.
+- Flutter hanya membuat request command `PENDING` untuk Operator aktif. Telemetry,
+  command results, dan Data Activity adalah read-only dari sisi Flutter.
+- Tombol diagnostic write dan writer client lama dinonaktifkan/fail-closed.
+- MQTT tetap menjadi protokol perangkat/gateway; gateway/Admin SDK belum
+  diimplementasikan atau diverifikasi dalam workspace.
+- Opsi FlutterFire Android di source menunjuk `scada-lbs`. Firebase Rules tetap
+  lokal dan belum dideploy.
+
 ## 2026-11-08
 
 - EventLogger diinisialisasi saat startup dan mengelola koneksi MQTT mengikuti

@@ -19,8 +19,9 @@ pemilik harus memastikan Project ID, URL database, dan region masih cocok.
 2. Firebase Console: buka project `scada-lbs`, verifikasi Project ID dan RTDB URL.
 3. Project Settings → General → Your apps → Add app → Android. Isi package persis
    `com.mizan.scada_lbs`. Jangan membuat app registration dengan package lama.
-4. Unduh `google-services.json` untuk app itu ke
-   `flutter_app_skeleton/android/app/google-services.json`. File ini diabaikan Git.
+4. `google-services.json` boleh diunduh ke
+  `flutter_app_skeleton/android/app/google-services.json` sebagai konfigurasi
+  Gradle lokal. File ini diabaikan Git dan bukan service-account key.
 5. Pastikan Authentication → Sign-in method mengaktifkan Email/Password. Tidak
    diperlukan Google Sign-In.
 
@@ -37,16 +38,15 @@ cd .\Proyek-Tugas-Akhir-Mizan-main\flutter_app_skeleton
 flutterfire configure --project=scada-lbs --platforms=android
 ```
 
-Pilih app Android dengan package `com.mizan.scada_lbs` saja. Jika app belum
-terdaftar atau package tidak cocok, batalkan dan selesaikan Console terlebih
-dahulu. Jangan menempel isi `google-services.json` atau `firebase_options.dart`
-ke chat. `lib/firebase_options.dart` yang sekarang adalah placeholder fail-fast;
-startup menolak project ID atau database URL yang berbeda dari target.
+Pilih app Android dengan package `com.mizan.scada_lbs` saja jika registrasi
+berubah atau konfigurasi perlu diregenerasi. File saat ini sudah berisi opsi
+Android untuk project `scada-lbs`; startup menolak Project ID atau RTDB URL yang
+berbeda dari target. Jangan menempel isi file konfigurasi ke chat atau commit
+`google-services.json`.
 
 Setelah CLI selesai, periksa lokal bahwa options Android memuat Project ID
-`scada-lbs` dan RTDB URL di atas. `google-services.json` dan FlutterFire options
-adalah konfigurasi client, bukan service-account. Jangan menggantinya dengan
-service-account JSON.
+`scada-lbs` dan RTDB URL di atas. FlutterFire options adalah konfigurasi client,
+bukan service-account. Jangan menggantinya dengan service-account JSON.
 
 ## Authentication dan profil
 

@@ -1,7 +1,9 @@
 # Skema Firebase Realtime Database — SCADA LBS
 
-Firebase options harus menunjuk project `scada-lbs` dan RTDB URL yang disepakati.
-Options masih harus digenerate pemilik setelah Android app terdaftar.
+`flutter_app_skeleton/lib/firebase_options.dart` saat ini menunjuk project
+`scada-lbs` dan RTDB URL yang disepakati. Startup memvalidasi kedua nilai itu;
+jika app registration atau project berubah, pemilik harus meregenerasi dan
+meninjau konfigurasi secara lokal.
 
 ## Users
 

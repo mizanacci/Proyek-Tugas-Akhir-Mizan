@@ -50,6 +50,7 @@ app.*.map.json
 
 # Local Firebase/MQTT project configuration
 android/app/google-services.json
+database.users.seed.json
 .firebase/
 firebase-debug.log
 .env

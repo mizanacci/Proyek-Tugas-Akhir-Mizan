@@ -57,7 +57,8 @@ class DefaultFirebaseOptions {
     appId: '1:959980736595:android:793199291f5c3fb501b6a6',
     messagingSenderId: '959980736595',
     projectId: 'scada-lbs',
-    databaseURL: 'https://scada-lbs-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://scada-lbs-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'scada-lbs.firebasestorage.app',
   );
 }

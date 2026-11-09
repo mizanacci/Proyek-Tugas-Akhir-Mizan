@@ -17,10 +17,11 @@ Buka `../docs/SCADA_LBS_ANDROID_SETUP.md` dan lakukan urutan manual berikut:
 4. Tinjau `database.rules.json` dan publish rules hanya setelah review manual.
 5. Jalankan `flutter pub get`, `flutter analyze`, `flutter test`, dan `flutter run`.
 
-`lib/firebase_options.dart` saat ini adalah placeholder fail-fast; jangan
-mengharapkan Firebase startup berhasil sebelum FlutterFire CLI menghasilkan
-file baru. Startup juga memeriksa project ID dan URL RTDB. `android/app/google-services.json`
-harus berasal dari app Android baru dan diabaikan Git.
+`lib/firebase_options.dart` berisi konfigurasi Android untuk project `scada-lbs`;
+startup memvalidasi Project ID dan RTDB URL. Jika app registration atau project
+berubah, pemilik harus menjalankan ulang FlutterFire CLI dan meninjau hasilnya.
+`android/app/google-services.json` adalah konfigurasi lokal opsional untuk
+Gradle dan selalu diabaikan Git.
 
 ## Gateway and command handling
 

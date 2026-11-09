@@ -55,7 +55,14 @@ Realtime Database; jangan membuat URL dengan menebak region lain.
   iOS bundle identifier di source adalah `com.example.scadaMizanApp`, tetapi
   target yang dipersiapkan di panduan ini hanya Android.
 
-### Arsitektur kode pada snapshot sebelum integrasi backend
+### Arsitektur kode pada snapshot sebelum integrasi backend (arsip)
+
+Bagian ini sengaja mempertahankan kondisi historis sebelum integrasi backend.
+Jangan gunakan diagram atau klaim Flutter-writer di bawah sebagai instruksi
+operasional. Arsitektur aktif dijelaskan di `MQTT_FIREBASE_DATA_FLOW.md` dan
+`SCADA_LBS_ANDROID_SETUP.md`: Flutter membaca Firebase, Operator hanya membuat
+request `PENDING` di `/commands`, sedangkan gateway/backend menulis telemetry,
+command results, dan Data Activity.
 
 ```text
 ESP32 firmware
@@ -75,7 +82,7 @@ Flutter control → publish `{"command":"NO|NC"}` ke
 `scada/mizan/cmd/relay` (alur kontrol yang ada; firmware tidak diubah).
 ```
 
-Detail aktual:
+Detail historis snapshot:
 
 - `Firebase Auth`: `signInWithEmailAndPassword`; tidak ada form pendaftaran
   mandiri pada layar login. Service memiliki method pendaftaran, tetapi tidak
@@ -86,14 +93,15 @@ Detail aktual:
 - `role`: hanya `manager` atau `operator`. Salinan migrasi menolak profil hilang
   atau role yang tidak dikenal; tidak lagi menganggap semua role tidak dikenal
   sebagai `operator`.
-- `Data Activity`: `/data_activity/{pushId}`. Snapshot otomatis diperiksa
-  setiap 10 detik, tetapi hanya ditulis saat ada sample baru, subscription siap,
+- Pada snapshot lama, `Data Activity`: `/data_activity/{pushId}` diperiksa
+  otomatis setiap 10 detik, tetapi hanya ditulis saat ada sample baru,
+  subscription siap,
   data belum stale (batas 15 detik), dan pengguna ber-auth.
 - `settings` dan `scada_data` memiliki method kompatibilitas di service tetapi
   tidak ditemukan call-site aktif pada UI/workflow; rules migrasi tidak memberi
   akses ke path tersebut.
-- ESP32 tidak menulis langsung ke Firebase. Flutter adalah subscriber MQTT
-  sekaligus penulis RTDB.
+- ESP32 tidak menulis langsung ke Firebase. Pada snapshot lama Flutter adalah
+  subscriber MQTT sekaligus penulis RTDB; source aktif sudah menghapus alur ini.
 
 ### Kontrak MQTT yang dipertahankan
 

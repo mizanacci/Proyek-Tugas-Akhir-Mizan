@@ -1,4 +1,3 @@
-
 {
   "rules": {
     ".read": false,
@@ -11,6 +10,7 @@
     },
     "commands": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
+      ".indexOn": ["created_at"],
       "$commandId": {
         ".write": "auth != null && !data.exists() && root.child('users').child(auth.uid).child('isActive').val() == true && root.child('users').child(auth.uid).child('role').val() == 'operator' && newData.child('created_by_uid').val() == auth.uid && newData.child('created_by_name').val() == root.child('users').child(auth.uid).child('displayName').val() && newData.child('target').val() == 'LBS_01' && (newData.child('action').val() == 'OPEN' || newData.child('action').val() == 'CLOSE') && newData.child('status').val() == 'PENDING' && newData.child('created_at').val() == now",
         ".validate": "newData.hasChildren(['target','action','created_at','created_by_uid','created_by_name','status'])",
@@ -24,7 +24,8 @@
       }
     },
     "command_results": {
-      ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')"
+      ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
+      ".indexOn": ["updated_at"]
     },
     "telemetry": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",

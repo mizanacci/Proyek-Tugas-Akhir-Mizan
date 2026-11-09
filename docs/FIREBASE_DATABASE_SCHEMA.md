@@ -1,65 +1,54 @@
 # Skema Firebase Realtime Database — SCADA LBS
 
-`flutter_app_skeleton/lib/firebase_options.dart` saat ini menunjuk project
-`scada-lbs` dan RTDB URL yang disepakati. Startup memvalidasi kedua nilai itu;
-jika app registration atau project berubah, pemilik harus meregenerasi dan
-meninjau konfigurasi secara lokal.
+Firebase options Flutter menunjuk project scada-lbs dan RTDB URL yang disepakati. Backend gateway memakai Firebase Admin SDK dari lingkungan server; service-account tidak boleh disimpan di repository atau APK.
 
 ## Users
 
-```text
-/users/{uid}
-  email: string                 # informational; not an authorization key
-  displayName: string
-  role: "manager" | "operator"
-  isActive: boolean
-```
+    /users/{uid}
+      email: string
+      displayName: string
+      role: "manager" | "operator"
+      isActive: boolean
 
-The UID is the Firebase Authentication UID. Flutter reads only its own profile;
-profile creation and changes are owner/admin operations. No gateway identity is
-stored under `/users`; the backend uses Firebase Admin SDK separately.
+UID adalah Firebase Authentication UID. Flutter hanya membaca profil UID sendiri. Profil dibuat/diubah pemilik/admin. Gateway tidak memakai profil gateway di node users.
 
 ## Commands
 
-```text
-/commands/{commandId}
-  target: "LBS_01"
-  action: "OPEN" | "CLOSE"
-  created_at: ServerValue.timestamp
-  created_by_uid: Auth UID
-  created_by_name: profile displayName
-  status: "PENDING"
-```
+    /commands/{commandId}
+      target: "LBS_01"
+      action: "OPEN" | "CLOSE"
+      created_at: Firebase ServerValue.timestamp
+      created_by_uid: Auth UID
+      created_by_name: profile displayName
+      status: "PENDING"
 
-Only an active operator can append a new command. Managers can read commands but
-cannot create or modify them. `PENDING` only means the request was recorded; it
-is not an execution result or actual position. Gateway must validate identity,
-target, expiry, idempotency, and policy again before forwarding to the control
-interface. The PLC retains interlocks and protection.
+Hanya Operator aktif yang dapat menambahkan request. Request bersifat immutable dari sisi Flutter. PENDING berarti hanya request tercatat, bukan perintah diterima ESP32 atau posisi LBS berubah.
 
-## Backend-owned data
+## Command results
 
-```text
-/command_results/{commandId}
-  command_id: string
-  status: RECEIVED | EXECUTING | SUCCEEDED | FAILED | REJECTED | EXPIRED
-  updated_at: server epoch milliseconds
-  detail: string
+    /command_results/{commandId}
+      command_id: string
+      status: RECEIVED | EXECUTING | SUCCEEDED | FAILED | REJECTED | EXPIRED | INDETERMINATE
+      updated_at: server epoch milliseconds
+      detail: string
+      dispatch_state: validating | dry_run | publishing | sent | interrupted | rejected
 
-/telemetry/{deviceId}/{entryId}
-  device_id, timestamp, device_ts_ms, received_at
-  v_sumber, v_beban, i_sumber, i_beban, kualitas
-  status_lru, status_com, status_lbs
+RECEIVED pada mode dry-run berarti gateway memvalidasi request tetapi tidak mempublikasikan perintah. EXECUTING berarti gateway mengirim MQTT PUBLISH; itu bukan acknowledgement perangkat. INDETERMINATE berarti hasil pengiriman tidak dapat dipastikan setelah gangguan/restart. SUCCEEDED hanya boleh digunakan setelah acknowledgement berkorelasi dan feedback posisi aktual dikonfirmasi oleh auxiliary contact melalui PLC.
 
-/data_activity/{entryId}
-  timestamp, jenis, keterangan, oleh_uid, oleh_nama, sumber, command_id?
-```
+## Telemetry
 
-The separate gateway/backend writes telemetry, command results, and activity.
-Flutter reads these paths through Realtime Database streams and never writes
-them. Admin SDK bypasses RTDB Rules, so backend validation and service-account
-handling remain server responsibilities. No gateway implementation exists in
-this workspace.
+    /telemetry/{deviceId}/latest
+      device_id, timestamp, device_ts_ms, received_at
+      v_sumber, v_beban, i_sumber, i_beban, kualitas
+      status_lru, status_com, status_lbs
 
-The UI queries the newest telemetry entry by `timestamp` and the latest 100
-activity entries. RTDB indexes are declared in `database.rules.json`.
+Gateway MVP menimpa satu record latest agar RTDB tidak tumbuh tanpa batas dari telemetry setiap 5 detik. Status LBS tetap UNKNOWN karena firmware saat ini belum mempublikasikan independent auxiliary-contact feedback. Gateway tidak boleh menyimpulkan status posisi dari command terakhir atau register request.
+
+## Data activity
+
+    /data_activity/{entryId}
+      timestamp, jenis, keterangan, oleh_uid, oleh_nama, sumber, command_id?
+
+Data Activity, telemetry, dan command results adalah backend-owned. Flutter hanya membaca ketiganya. Firebase Admin SDK melewati RTDB Security Rules; karena itu gateway melakukan validasi ulang UID, role, isActive, target, action, timestamp/expiry, dan idempotency.
+
+Rules lokal berada di flutter_app_skeleton/database.rules.json. File lokal bukan aturan live sampai pemilik menguji Rules Emulator dan mempublikasikannya secara manual.

@@ -1,0 +1,16 @@
+{
+  "users": {
+    "<UID_MANAGER_FROM_AUTH>": {
+      "email": "<MANAGER_EMAIL_FROM_AUTH>",
+      "displayName": "SCADA Manager",
+      "role": "manager",
+      "isActive": true
+    },
+    "<UID_OPERATOR_FROM_AUTH>": {
+      "email": "<OPERATOR_EMAIL_FROM_AUTH>",
+      "displayName": "SCADA Operator",
+      "role": "operator",
+      "isActive": true
+    }
+  }
+}

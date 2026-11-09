@@ -15,7 +15,6 @@ import 'package:flutter/foundation.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../config/app_secrets.dart';
 import '../models/sensor_data.dart';
 
 // Samakan dengan config.h firmware & dokumen 04_Konfigurasi_HiveMQ.md
@@ -24,7 +23,6 @@ const int _mqttPort = 8883;
 const String _topicDataSensor = 'scada/mizan/data/sensor';
 const String _topicStatusLruf = 'scada/mizan/status/lrufail';
 const String _topicStatusComf = 'scada/mizan/status/comfail';
-const String _topicCmdRemote = 'scada/mizan/cmd/relay';
 
 class MqttService extends ChangeNotifier {
   late MqttServerClient _client;
@@ -40,7 +38,6 @@ class MqttService extends ChangeNotifier {
   String? _lastParseError;
   int _jumlahPayloadSensorDiterima = 0;
   int _jumlahPayloadSensorDiproses = 0;
-  int _publishFailureCount = 0;
   String? _clientId;
   final Set<String> _subscriptionsConfirmed = {};
   final Duration sensorStaleAfter;
@@ -74,9 +71,10 @@ class MqttService extends ChangeNotifier {
   String? get errorTerakhir => _errorTerakhir;
   String? get lastParseError => _lastParseError;
   String? get clientIdForDiagnostics => _clientId;
-  int get publishFailureCount => _publishFailureCount;
   int get jumlahPayloadSensorDiterima => _jumlahPayloadSensorDiterima;
   int get jumlahPayloadSensorDiproses => _jumlahPayloadSensorDiproses;
+  @Deprecated('Relay requests must use the Firebase command queue.')
+  int get publishFailureCount => 0;
   List<String> get topicDilanggani => const [
         _topicDataSensor,
         _topicStatusLruf,
@@ -185,17 +183,9 @@ class MqttService extends ChangeNotifier {
   }
 
   Future<bool> connectForRole(UserRole role, String uid) async {
-    final bool isManager = role == UserRole.manager;
-    final clientId = await clientIdUntukInstalasi();
-    return connect(
-      username: isManager
-          ? AppSecrets.mqttManagerUsername
-          : AppSecrets.mqttOperatorUsername,
-      password: isManager
-          ? AppSecrets.mqttManagerPassword
-          : AppSecrets.mqttOperatorPassword,
-      clientId: clientId,
-    );
+    _pesanKoneksi = 'MQTT access is owned by the SCADA gateway.';
+    notifyListeners();
+    return false;
   }
 
   Future<String> clientIdUntukInstalasi() async {
@@ -404,42 +394,11 @@ class MqttService extends ChangeNotifier {
     });
   }
 
-  /// Mengirim perintah NO/NC ke ESP32 (role Operator saja — validasi hak
-  /// akses role dilakukan di layar pemanggil, BUKAN di service ini, agar
-  /// service tetap sederhana/reusable; lihat kontrol_monitoring_lbs_screen.dart).
+  @Deprecated('Relay requests must use ScadaService and the reviewed gateway.')
   bool kirimPerintahRelay(String perintah) {
-    if (!_terhubung) {
-      debugPrint('[MQTT] Tidak terhubung, perintah $perintah dibatalkan.');
-      return false;
-    }
-    if (alasanTidakBisaKirim != null) {
-      debugPrint('[MQTT] Perintah $perintah dibatalkan: $alasanTidakBisaKirim');
-      return false;
-    }
-    final payload = jsonEncode({'command': perintah});
-    final builder = MqttClientPayloadBuilder();
-    builder.addString(payload);
-    try {
-      final messageId = _client.publishMessage(
-        _topicCmdRemote,
-        MqttQos.atLeastOnce,
-        builder.payload!,
-      );
-      if (messageId == 0) {
-        _publishFailureCount++;
-        _errorTerakhir = 'Broker tidak menerima publish perintah.';
-        notifyListeners();
-        return false;
-      }
-      _statusLbs = 'PUBLISHED_$perintah';
-      notifyListeners();
-      return true;
-    } catch (error) {
-      _publishFailureCount++;
-      _errorTerakhir = 'Gagal publish perintah MQTT: $error';
-      notifyListeners();
-      return false;
-    }
+    _errorTerakhir = 'Direct MQTT relay publishing is disabled.';
+    notifyListeners();
+    return false;
   }
 
   void disconnect() {

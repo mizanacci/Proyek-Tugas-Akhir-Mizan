@@ -1,60 +1,38 @@
+
 {
   "rules": {
+    ".read": false,
+    ".write": false,
     "users": {
       "$uid": {
-        ".read": "auth != null && auth.uid == $uid"
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": false
       }
+    },
+    "commands": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
+      "$commandId": {
+        ".write": "auth != null && !data.exists() && root.child('users').child(auth.uid).child('isActive').val() == true && root.child('users').child(auth.uid).child('role').val() == 'operator' && newData.child('created_by_uid').val() == auth.uid && newData.child('created_by_name').val() == root.child('users').child(auth.uid).child('displayName').val() && newData.child('target').val() == 'LBS_01' && (newData.child('action').val() == 'OPEN' || newData.child('action').val() == 'CLOSE') && newData.child('status').val() == 'PENDING' && newData.child('created_at').val() == now",
+        ".validate": "newData.hasChildren(['target','action','created_at','created_by_uid','created_by_name','status'])",
+        "target": { ".validate": "newData.isString() && newData.val() == 'LBS_01'" },
+        "action": { ".validate": "newData.isString() && (newData.val() == 'OPEN' || newData.val() == 'CLOSE')" },
+        "created_at": { ".validate": "newData.isNumber() && newData.val() == now" },
+        "created_by_uid": { ".validate": "newData.isString() && newData.val() == auth.uid" },
+        "created_by_name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120" },
+        "status": { ".validate": "newData.isString() && newData.val() == 'PENDING'" },
+        "$other": { ".validate": false }
+      }
+    },
+    "command_results": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')"
+    },
+    "telemetry": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
+      "$deviceId": { ".indexOn": ["timestamp"] }
     },
     "data_activity": {
-      ".read": "auth != null",
-      ".indexOn": ["timestamp"],
-      "$id": {
-        ".write": "auth != null && !data.exists() && newData.child('oleh_uid').val() == auth.uid",
-        ".validate": "newData.hasChildren(['timestamp','jenis','keterangan','oleh_uid','sumber'])",
-        "timestamp": {
-          ".validate": "newData.isNumber()"
-        },
-        "device_ts_ms": {
-          ".validate": "newData.isNumber()"
-        },
-        "received_at": {
-          ".validate": "newData.isNumber()"
-        },
-        "jenis": {
-          ".validate": "newData.isString() && (newData.val() == 'PERINTAH' || newData.val() == 'ALARM' || newData.val() == 'STATUS' || newData.val() == 'SCADA_UPDATE')"
-        },
-        "keterangan": {
-          ".validate": "newData.isString() && newData.val().length <= 200"
-        },
-        "oleh_uid": {
-          ".validate": "newData.isString() && newData.val() == auth.uid"
-        },
-        "oleh_nama": {
-          ".validate": "newData.isString()"
-        },
-        "sumber": {
-          ".validate": "newData.isString() && (newData.val() == 'mobile' || newData.val() == 'mqtt')"
-        },
-        "v_sumber": { ".validate": "newData.isNumber()" },
-        "v_beban": { ".validate": "newData.isNumber()" },
-        "i_sumber": { ".validate": "newData.isNumber()" },
-        "i_beban": { ".validate": "newData.isNumber()" },
-        "kualitas": { ".validate": "newData.isNumber()" },
-        "status_lru": { ".validate": "newData.isString()" },
-        "status_com": { ".validate": "newData.isString()" },
-        "status_lbs": { ".validate": "newData.isString()" },
-        "$other": {
-          ".validate": true
-        }
-      }
-    },
-    "settings": {
-      ".read": "auth != null",
-      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() == 'manager'"
-    },
-    "scada_data": {
-      ".read": "auth != null",
-      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() == 'manager'"
+      ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
+      ".indexOn": ["timestamp"]
     }
   }
 }

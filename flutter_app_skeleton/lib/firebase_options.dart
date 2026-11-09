@@ -17,7 +17,10 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      return web;
+      throw UnsupportedError(
+        'DefaultFirebaseOptions have not been configured for web - '
+        'you can reconfigure this by running the FlutterFire CLI again.',
+      );
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -50,21 +53,11 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAWhfB9pyNpychXm5L9wroYwRFU43q3smQ',
-    appId: '1:458957628300:android:cb38f13c387d3c71cfeca9',
-    messagingSenderId: '458957628300',
-    projectId: 'scada-mizan-ta',
-    databaseURL: 'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
-    storageBucket: 'scada-mizan-ta.firebasestorage.app',
-  );
-  static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyA5NYhxvss-F2FA8o5KqEvH-nvcWL8YS9g',
-    appId: '1:458957628300:web:318c4121fe58adb0cfeca9',
-    messagingSenderId: '458957628300',
-    projectId: 'scada-mizan-ta',
-    authDomain: 'scada-mizan-ta.firebaseapp.com',
-    databaseURL:
-        'https://scada-mizan-ta-default-rtdb.asia-southeast1.firebasedatabase.app',
-    storageBucket: 'scada-mizan-ta.firebasestorage.app',
+    apiKey: 'AIzaSyAV7J5qttASWfPiBpSDH3kBSyqP7SlHukk',
+    appId: '1:959980736595:android:793199291f5c3fb501b6a6',
+    messagingSenderId: '959980736595',
+    projectId: 'scada-lbs',
+    databaseURL: 'https://scada-lbs-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'scada-lbs.firebasestorage.app',
   );
 }

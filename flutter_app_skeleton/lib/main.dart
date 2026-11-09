@@ -6,19 +6,26 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 
+import 'config/firebase_config.dart';
 import 'firebase_options.dart';
 import 'services/firebase_service.dart';
-import 'services/mqtt_service.dart';
 import 'services/event_logger.dart';
+import 'services/scada_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/menu_manager_screen.dart';
 import 'screens/menu_operator_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  final options = DefaultFirebaseOptions.currentPlatform;
+  if (options.projectId != firebaseProjectId ||
+      options.databaseURL != firebaseDatabaseUrl) {
+    throw StateError(
+      'Firebase options harus menunjuk project $firebaseProjectId dan '
+      'Realtime Database $firebaseDatabaseUrl. Jalankan FlutterFire CLI.',
+    );
+  }
+  await Firebase.initializeApp(options: options);
   runApp(const ScadaMizanApp());
 }
 
@@ -30,11 +37,14 @@ class ScadaMizanApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => FirebaseService()),
-        ChangeNotifierProvider(create: (_) => MqttService()),
-        ProxyProvider2<FirebaseService, MqttService, EventLogger>(
+        ProxyProvider<FirebaseService, ScadaService>(
+          update: (_, firebase, __) => ScadaService(
+            loadCurrentProfile: firebase.getCurrentProfile,
+          ),
+        ),
+        ProxyProvider<FirebaseService, EventLogger>(
           lazy: false,
-          update: (_, firebase, mqtt, previous) =>
-              previous ?? EventLogger(firebase, mqtt),
+          update: (_, firebase, previous) => previous ?? EventLogger(firebase),
           dispose: (_, logger) => logger.dispose(),
         ),
       ],

@@ -7,9 +7,10 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../services/mqtt_service.dart';
 import '../services/firebase_service.dart';
-import '../widgets/status_link_tile.dart';
+import '../models/sensor_data.dart';
+import '../models/scada_data.dart';
+import '../services/scada_service.dart';
 
 class KontrolMonitoringLbsScreen extends StatefulWidget {
   const KontrolMonitoringLbsScreen({super.key});
@@ -21,46 +22,55 @@ class KontrolMonitoringLbsScreen extends StatefulWidget {
 
 class _KontrolMonitoringLbsScreenState
     extends State<KontrolMonitoringLbsScreen> {
-  Future<void> _kirimPerintah(BuildContext context, String perintah) async {
+  String? _commandId;
+  String? _submissionMessage;
+  bool _sending = false;
+
+  Future<void> _kirimPerintah(BuildContext context, String action) async {
     final konfirmasi = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Konfirmasi Perintah'),
-        content: Text('Kirim perintah $perintah ke relay MY2N?'),
+        title: const Text('Konfirmasi Permintaan'),
+        content: Text(
+          'Kirim permintaan $action ke ${ScadaService.lbsTarget}? '
+          'Gateway dan PLC tetap memvalidasi permissive serta interlock.',
+        ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
               child: const Text('Batal')),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Kirim')),
+              child: const Text('Kirim permintaan')),
         ],
       ),
     );
     if (konfirmasi != true || !context.mounted) return;
 
-    final mqtt = context.read<MqttService>();
-    final firebase = context.read<FirebaseService>();
-    final published = mqtt.kirimPerintahRelay(perintah);
-    final detail = published
-        ? 'PUBLISHED: perintah $perintah dikirim ke MQTT; menunggu konfirmasi PLC.'
-        : 'REJECTED: perintah $perintah tidak dipublikasikan. '
-            '${mqtt.alasanTidakBisaKirim ?? mqtt.errorTerakhir ?? 'Kegagalan publish MQTT.'}';
+    setState(() {
+      _sending = true;
+      _submissionMessage = null;
+    });
     try {
-      await firebase.catatEvent(jenis: 'PERINTAH', keterangan: detail);
+      final commandId = await context.read<ScadaService>().sendLbsCommand(
+            target: ScadaService.lbsTarget,
+            action: action,
+          );
+      if (!mounted) return;
+      setState(() {
+        _commandId = commandId;
+        _submissionMessage = 'PENDING: permintaan tercatat; menunggu gateway.';
+      });
     } catch (error) {
-      debugPrint('[Kontrol] Gagal mencatat aktivitas perintah: $error');
+      if (!mounted) return;
+      setState(() => _submissionMessage = 'Permintaan gagal dikirim: $error');
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
 
-    if (!context.mounted) return;
+    if (!context.mounted || _submissionMessage == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(published
-            ? 'Perintah dipublikasikan ke MQTT; menunggu feedback PLC.'
-            : mqtt.alasanTidakBisaKirim ??
-                mqtt.errorTerakhir ??
-                'Perintah ditolak.'),
-      ),
+      SnackBar(content: Text(_submissionMessage!)),
     );
   }
 
@@ -68,89 +78,126 @@ class _KontrolMonitoringLbsScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Kontrol & Monitoring LBS')),
-      body: Consumer<MqttService>(
-        builder: (context, mqtt, _) {
-          final alasan = mqtt.alasanTidakBisaKirim;
-          final bisaKirim = alasan == null;
+      body: Consumer<FirebaseService>(
+        builder: (context, firebase, _) {
+          final profile = firebase.profilSaatIni;
+          final bisaKirim =
+              profile?.isActive == true && profile?.role == UserRole.operator;
+          final scada = context.read<ScadaService>();
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.asset(
-                    'assets/images/lbs_control_illustration.png',
-                    height: 160,
-                    width: double.infinity,
-                    cacheWidth: 900,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) =>
-                        const SizedBox(
+          return StreamBuilder<ScadaTelemetry?>(
+            stream: scada.watchTelemetry(ScadaService.lbsTarget),
+            builder: (context, snapshot) => SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.asset(
+                      'assets/images/lbs_control_illustration.png',
                       height: 160,
-                      child: Center(
-                          child: Icon(Icons.image_not_supported_outlined)),
+                      width: double.infinity,
+                      cacheWidth: 900,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const SizedBox(
+                        height: 160,
+                        child: Center(
+                            child: Icon(Icons.image_not_supported_outlined)),
+                      ),
                     ),
                   ),
-                ),
-                if (alasan != null) ...[
-                  const SizedBox(height: 16),
-                  Card(
-                    color: Colors.amber.shade50,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Text(alasan),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _TombolKontrol(
-                      label: 'NO',
-                      warna: Colors.red,
-                      aktif: bisaKirim,
-                      onTap: () => _kirimPerintah(context, 'NO'),
-                    ),
-                    _TombolKontrol(
-                      label: 'NC',
-                      warna: Colors.green,
-                      aktif: bisaKirim,
-                      onTap: () => _kirimPerintah(context, 'NC'),
+                  if (!bisaKirim) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      color: Colors.amber.shade50,
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text(
+                          'Hanya operator aktif yang dapat mengirim permintaan kontrol.',
+                        ),
+                      ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 24),
-                const Divider(),
-                const Text('Status Terkini',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                StatusLinkTile(
-                  label: 'Koneksi aplikasi ke HiveMQ',
-                  state: mqtt.koneksiAplikasiState,
-                  subtitle: mqtt.koneksiAplikasiMessage,
-                ),
-                StatusLinkTile(
-                  label: 'Koneksi ESP32 ke MQTT',
-                  state: mqtt.lruState,
-                  subtitle: mqtt.koneksiPerangkatMessage,
-                ),
-                StatusLinkTile(
-                  label: 'Status koneksi sistem',
-                  state: mqtt.statusKoneksiSistemState,
-                  subtitle: mqtt.statusKoneksiSistemMessage,
-                ),
-                StatusLinkTile(
-                  label: 'LRUFail',
-                  state: mqtt.lruState,
-                  subtitle: mqtt.lruStatusMessage,
-                ),
-                StatusLinkTile(
-                  label: 'COMFail (estimasi ESP32)',
-                  state: mqtt.comState,
-                  subtitle: mqtt.comStatusMessage,
-                ),
-              ],
+                  if (snapshot.hasError)
+                    Text('Telemetry tidak dapat dibaca: ${snapshot.error}'),
+                  if (snapshot.data != null) ...[
+                    if (snapshot.data!.isStale)
+                      const Card(
+                        child: ListTile(
+                          leading: Icon(Icons.warning_amber_rounded),
+                          title: Text('Telemetry stale'),
+                        ),
+                      ),
+                    ListTile(
+                      title: const Text('Posisi aktual dari telemetry'),
+                      subtitle: Text(snapshot.data!.lbsStatus),
+                    ),
+                    ListTile(
+                      title: const Text('Status komunikasi'),
+                      subtitle: Text(
+                        'LRU: ${snapshot.data!.lruStatus} · '
+                        'COM: ${snapshot.data!.communicationStatus}',
+                      ),
+                    ),
+                  ] else if (snapshot.connectionState ==
+                      ConnectionState.waiting)
+                    const LinearProgressIndicator()
+                  else if (!snapshot.hasError)
+                    const Text('Telemetry belum tersedia.'),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _TombolKontrol(
+                        label: 'OPEN',
+                        warna: Colors.red,
+                        aktif: bisaKirim && !_sending,
+                        onTap: () => _kirimPerintah(context, 'OPEN'),
+                      ),
+                      _TombolKontrol(
+                        label: 'CLOSE',
+                        warna: Colors.green,
+                        aktif: bisaKirim && !_sending,
+                        onTap: () => _kirimPerintah(context, 'CLOSE'),
+                      ),
+                    ],
+                  ),
+                  if (_sending) const CircularProgressIndicator(),
+                  if (_submissionMessage != null)
+                    ListTile(
+                      title: const Text('Status pengiriman'),
+                      subtitle: Text(_submissionMessage!),
+                    ),
+                  if (_commandId != null)
+                    StreamBuilder<ScadaCommandResult?>(
+                      stream: scada.watchCommandResult(_commandId!),
+                      builder: (context, resultSnapshot) {
+                        if (resultSnapshot.hasError) {
+                          return Text('Hasil command gagal dibaca: '
+                              '${resultSnapshot.error}');
+                        }
+                        final result = resultSnapshot.data;
+                        return ListTile(
+                          title: const Text('Status pemrosesan gateway'),
+                          subtitle: Text(result == null
+                              ? 'Menunggu hasil command $_commandId'
+                              : '${result.status.name.toUpperCase()}: '
+                                  '${result.detail}'),
+                        );
+                      },
+                    ),
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const Text('Keselamatan Operasi',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Firebase mencatat permintaan saja. Gateway memvalidasi '
+                    'command; PLC tetap memvalidasi permissive, interlock, dan proteksi.',
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
             ),
           );
         },

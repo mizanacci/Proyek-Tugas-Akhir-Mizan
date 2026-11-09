@@ -37,15 +37,13 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _loading = false);
 
       if (role == null) {
-        setState(() => _pesanError =
-            'Login gagal — periksa email/kata sandi, atau Firebase Auth/Realtime Database tidak bisa diakses.');
+        setState(() => _pesanError = firebaseService.pesanLoginTerakhir ??
+            'Login gagal — periksa email/kata sandi dan akses Firebase.');
         return;
       }
 
       // Routing berdasarkan role — lihat main.dart untuk daftar rute.
-      // Koneksi MQTT (MqttService.connect) dilakukan di masing-masing layar
-      // Menu, BUKAN di sini, agar kredensial MQTT bisa disesuaikan per-role
-      // bila diperlukan (lihat catatan 04_Konfigurasi_HiveMQ.md Bagian 2).
+      // Session listener revalidates the UID profile and active state.
       if (role == UserRole.manager) {
         Navigator.of(context).pushReplacementNamed('/menu-manager');
       } else {

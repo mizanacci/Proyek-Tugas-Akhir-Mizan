@@ -5,9 +5,13 @@
 /// Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../services/mqtt_service.dart';
+import '../services/firebase_service.dart';
+import '../services/scada_service.dart';
+import '../models/scada_data.dart';
 import '../models/sensor_data.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/integration_diagnostics_panel.dart';
@@ -24,122 +28,150 @@ class MonitoringScreen extends StatefulWidget {
 }
 
 class _MonitoringScreenState extends State<MonitoringScreen> {
+  late final Stream<ScadaTelemetry?> _telemetryStream;
+  Timer? _staleRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _telemetryStream =
+        context.read<ScadaService>().watchTelemetry(ScadaService.lbsTarget);
+    _staleRefreshTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) {
+        if (mounted) setState(() {});
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _staleRefreshTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Monitoring')),
-      body: Consumer<MqttService>(
-        builder: (context, mqtt, _) {
-          final data = mqtt.dataSensorTerbaru;
-          if (!mqtt.terhubung) {
-            return ListView(
-              children: [
-                EmptyState(
-                  imageAsset: 'assets/images/empty_mqtt_disconnected.png',
-                  title: 'Belum terhubung ke server',
-                  message: mqtt.pesanKoneksi ?? 'Memeriksa koneksi MQTT…',
-                ),
-                const IntegrationDiagnosticsPanel(),
-              ],
-            );
-          }
-          if (data == null) {
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                const IntegrationDiagnosticsPanel(),
-                const EmptyState(
-                  imageAsset: 'assets/images/empty_sensor_waiting.png',
-                  title: 'Menunggu data sensor',
-                  message: 'ESP32 belum mengirim data pertama',
-                ),
-                StatusLinkTile(
-                  label: 'Koneksi ESP32 ke broker (LRUFail)',
-                  state: mqtt.lruState,
-                  subtitle: mqtt.lruStatusMessage,
-                ),
-                StatusLinkTile(
-                  label: 'Komunikasi Modbus ESP32-PLC (COMFail)',
-                  state: mqtt.comState,
-                  subtitle: mqtt.comStatusMessage,
-                ),
-              ],
-            );
+      appBar: AppBar(title: Text('Monitoring ${widget.role.name}')),
+      body: Consumer<FirebaseService>(
+        builder: (context, firebase, _) {
+          final profile = firebase.profilSaatIni;
+          if (profile == null ||
+              !profile.isActive ||
+              profile.role != widget.role) {
+            return const Center(
+                child: Text('Sesi aktif tidak memiliki izin monitoring.'));
           }
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const IntegrationDiagnosticsPanel(),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.asset(
-                  'assets/images/monitoring_header_background.png',
-                  height: 110,
-                  cacheWidth: 900,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => const SizedBox(
-                    height: 110,
-                    child:
-                        Center(child: Icon(Icons.image_not_supported_outlined)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (mqtt.dataBasi) ...[
-                Card(
-                  color: Colors.orange.shade50,
-                  child: ListTile(
-                    leading: const Icon(Icons.warning_amber_rounded,
-                        color: Colors.orange),
-                    title: Text(
-                      'Data sensor tidak diperbarui sejak '
-                      '${_formatWaktu(mqtt.terakhirDataDiterima)}',
+          return StreamBuilder<ScadaTelemetry?>(
+            stream: _telemetryStream,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    const IntegrationDiagnosticsPanel(),
+                    Text('Telemetry tidak dapat dibaca: ${snapshot.error}'),
+                  ],
+                );
+              }
+              final telemetry = snapshot.data;
+              if (telemetry == null) {
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    const IntegrationDiagnosticsPanel(),
+                    EmptyState(
+                      imageAsset: 'assets/images/empty_sensor_waiting.png',
+                      title: snapshot.connectionState == ConnectionState.waiting
+                          ? 'Menghubungkan ke Firebase'
+                          : 'Menunggu telemetry gateway',
+                      message:
+                          'Data akan tampil setelah gateway menulis telemetry.',
+                    ),
+                  ],
+                );
+              }
+
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  const IntegrationDiagnosticsPanel(),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.asset(
+                      'assets/images/monitoring_header_background.png',
+                      height: 110,
+                      cacheWidth: 900,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const SizedBox(
+                        height: 110,
+                        child: Center(
+                          child: Icon(Icons.image_not_supported_outlined),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              StatusLinkTile(
-                label: 'Koneksi ESP32 ke broker (LRUFail)',
-                state: mqtt.lruState,
-                subtitle: mqtt.lruStatusMessage,
-              ),
-              StatusLinkTile(
-                label: 'Komunikasi Modbus ESP32–PLC (COMFail)',
-                state: mqtt.comState,
-                subtitle: mqtt.comStatusMessage,
-              ),
-              Text(
-                'Terakhir diperbarui: ${_formatWaktu(mqtt.terakhirDataDiterima)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              _KartuUkuran(
-                label: 'Tegangan Sisi Sumber',
-                nilai: data.teganganSumber,
-                satuan: 'V',
-                good: data.kualitasVSumberGood,
-              ),
-              _KartuUkuran(
-                label: 'Tegangan Sisi Beban',
-                nilai: data.teganganBeban,
-                satuan: 'V',
-                good: data.kualitasVBebanGood,
-              ),
-              _KartuUkuran(
-                label: 'Arus Sisi Sumber',
-                nilai: data.arusSumber,
-                satuan: 'A',
-                good: data.kualitasISumberGood,
-              ),
-              _KartuUkuran(
-                label: 'Arus Sisi Beban',
-                nilai: data.arusBeban,
-                satuan: 'A',
-                good: data.kualitasIBebanGood,
-              ),
-            ],
+                  const SizedBox(height: 16),
+                  if (telemetry.isStale) ...[
+                    const Card(
+                      color: Color(0xFFFFF3E0),
+                      child: ListTile(
+                        leading: Icon(Icons.warning_amber_rounded),
+                        title: Text('Telemetry stale: tidak ada update baru.'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  StatusLinkTile(
+                    label: 'Gateway / LRU',
+                    state: _statusState(telemetry.lruStatus),
+                    subtitle: telemetry.lruStatus,
+                  ),
+                  StatusLinkTile(
+                    label: 'Komunikasi PLC',
+                    state: _statusState(telemetry.communicationStatus),
+                    subtitle: telemetry.communicationStatus,
+                  ),
+                  ListTile(
+                    title: const Text('Posisi LBS dari telemetry'),
+                    subtitle: Text(telemetry.lbsStatus),
+                  ),
+                  Text(
+                    'Diterima: ${_formatWaktu(telemetry.receivedAt)} · '
+                    'waktu perangkat: ${telemetry.deviceTimestampMs}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 16),
+                  _KartuUkuran(
+                    label: 'Tegangan Sisi Sumber',
+                    nilai: telemetry.sourceVoltage,
+                    satuan: 'V',
+                    good: (telemetry.quality & 0x01) == 0,
+                  ),
+                  _KartuUkuran(
+                    label: 'Tegangan Sisi Beban',
+                    nilai: telemetry.loadVoltage,
+                    satuan: 'V',
+                    good: (telemetry.quality & 0x02) == 0,
+                  ),
+                  _KartuUkuran(
+                    label: 'Arus Sisi Sumber',
+                    nilai: telemetry.sourceCurrent,
+                    satuan: 'A',
+                    good: (telemetry.quality & 0x04) == 0,
+                  ),
+                  _KartuUkuran(
+                    label: 'Arus Sisi Beban',
+                    nilai: telemetry.loadCurrent,
+                    satuan: 'A',
+                    good: (telemetry.quality & 0x08) == 0,
+                  ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -147,8 +179,15 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   }
 }
 
-String _formatWaktu(DateTime? waktu) {
-  if (waktu == null) return '--:--:--';
+LinkState _statusState(String status) => switch (status) {
+      'NORMAL' => LinkState.normal,
+      'FAIL' => LinkState.fail,
+      _ => LinkState.unknown,
+    };
+
+String _formatWaktu(int millisecondsSinceEpoch) {
+  final waktu =
+      DateTime.fromMillisecondsSinceEpoch(millisecondsSinceEpoch).toLocal();
   final jam = waktu.hour.toString().padLeft(2, '0');
   final menit = waktu.minute.toString().padLeft(2, '0');
   final detik = waktu.second.toString().padLeft(2, '0');

@@ -83,6 +83,7 @@ test('rejects Manager, inactive, stale, future, or altered requests', () => {
   assert.equal(evaluateCommandShape(command, 70_000, 60_000).status, 'EXPIRED');
   assert.equal(evaluateCommandShape({ ...command, action: 'TRIP' }, 1100, 60_000).status, 'REJECTED');
   assert.equal(evaluateCommandShape({ ...command, created_at: 10_000 }, 1000, 60_000).status, 'REJECTED');
+  assert.equal(evaluateCommandShape({ ...command, unexpected: true }, 1100, 60_000).status, 'REJECTED');
   assert.equal(
     evaluateCommandProfile(command, {
       role: 'manager', isActive: true, displayName: 'Manager',
@@ -97,30 +98,37 @@ test('rejects Manager, inactive, stale, future, or altered requests', () => {
   );
 });
 
-test('requires fresh sensor, LRU, and COM status before enabled dispatch', () => {
+test('requires fresh, GOOD sensor and current-session LRU plus fresh COM before dispatch', () => {
   const state = {
     mqttConnected: true,
-    sensorReceivedAt: 900,
+    sensorReceivedAt: 19_900,
+    sensorQuality: 0,
     lruStatus: 'NORMAL',
-    lruReceivedAt: 940,
+    lruReceivedAt: 500,
     comStatus: 'NORMAL',
-    comReceivedAt: 950,
+    comReceivedAt: 19_950,
   };
-  assert.equal(evaluateDeviceReadiness(state, 1000, 15_000).ready, true);
+  // LRU NORMAL is retained and is sent once at ESP32 connect; the gateway
+  // invalidates it on reconnect rather than applying the COM heartbeat TTL.
+  assert.equal(evaluateDeviceReadiness(state, 20_000, 15_000).ready, true);
   assert.equal(
-    evaluateDeviceReadiness({ ...state, comStatus: 'FAIL' }, 1000, 15_000).ready,
+    evaluateDeviceReadiness({ ...state, comStatus: 'FAIL' }, 20_000, 15_000).ready,
     false,
   );
   assert.equal(
-    evaluateDeviceReadiness({ ...state, sensorReceivedAt: 0 }, 1000, 15_000).ready,
+    evaluateDeviceReadiness({ ...state, sensorReceivedAt: 0 }, 20_000, 15_000).ready,
     false,
   );
   assert.equal(
-    evaluateDeviceReadiness({ ...state, lruReceivedAt: 0 }, 1000, 15_000).ready,
+    evaluateDeviceReadiness({ ...state, lruReceivedAt: 0 }, 20_000, 15_000).ready,
     false,
   );
   assert.equal(
-    evaluateDeviceReadiness({ ...state, lruReceivedAt: 1 }, 20_000, 15_000).ready,
+    evaluateDeviceReadiness({ ...state, sensorQuality: 1 }, 20_000, 15_000).ready,
+    false,
+  );
+  assert.equal(
+    evaluateDeviceReadiness({ ...state, comReceivedAt: 1 }, 20_000, 15_000).ready,
     false,
   );
 });

@@ -77,6 +77,9 @@ export function loadConfig(env = process.env) {
   const commandDispatchEnabled = parseBoolean(env, 'COMMAND_DISPATCH_ENABLED', false);
   const openCommandValue = commandToken(env, 'OPEN_COMMAND_VALUE', commandDispatchEnabled);
   const closeCommandValue = commandToken(env, 'CLOSE_COMMAND_VALUE', commandDispatchEnabled);
+  if (commandDispatchEnabled && openCommandValue === closeCommandValue) {
+    throw new Error('OPEN_COMMAND_VALUE and CLOSE_COMMAND_VALUE must be different');
+  }
 
   const deviceId = (env.DEVICE_ID || DEFAULTS.deviceId).trim();
   if (deviceId !== DEFAULTS.deviceId) {

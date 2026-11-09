@@ -73,6 +73,7 @@ test('dry-run validates request but never publishes MQTT control', async () => {
     getDeviceState: () => ({
       mqttConnected: true,
       sensorReceivedAt: 1000,
+      sensorQuality: 0,
       lruStatus: 'NORMAL',
       lruReceivedAt: 1000,
       comStatus: 'NORMAL',
@@ -116,6 +117,7 @@ test('enabled dispatch rejects stale or missing LRU status before MQTT publish',
     getDeviceState: () => ({
       mqttConnected: true,
       sensorReceivedAt: 1000,
+      sensorQuality: 0,
       lruStatus: 'NORMAL',
       lruReceivedAt: 0,
       comStatus: 'NORMAL',
@@ -129,6 +131,6 @@ test('enabled dispatch rejects stale or missing LRU status before MQTT publish',
 
   const result = database.values.get('command_results/command-not-ready');
   assert.equal(result.status, 'REJECTED');
-  assert.match(result.detail, /LRU status is missing or stale/);
+  assert.match(result.detail, /LRU status has not been received in this MQTT session/);
   assert.equal(publishCount, 0);
 });

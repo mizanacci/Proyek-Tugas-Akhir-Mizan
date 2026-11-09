@@ -32,6 +32,7 @@ export class TelemetryIngestor {
     return {
       mqttConnected,
       sensorReceivedAt: this.sensorReceivedAt,
+      sensorQuality: this.sensor?.quality ?? null,
       lruStatus: this.lru?.status ?? 'UNKNOWN',
       lruReceivedAt: this.lru?.receivedAt ?? 0,
       comStatus: this.com?.status ?? 'UNKNOWN',

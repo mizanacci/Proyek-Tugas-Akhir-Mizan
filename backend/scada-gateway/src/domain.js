@@ -93,6 +93,17 @@ export function evaluateCommandShape(command, now, maxAgeMs) {
   if (command === null || typeof command !== 'object' || Array.isArray(command)) {
     return { ok: false, status: 'REJECTED', reason: 'Command record is not an object.' };
   }
+  const allowedFields = new Set([
+    'target',
+    'action',
+    'created_at',
+    'created_by_uid',
+    'created_by_name',
+    'status',
+  ]);
+  if (Object.keys(command).some((key) => !allowedFields.has(key))) {
+    return { ok: false, status: 'REJECTED', reason: 'Command contains an unexpected field.' };
+  }
   if (command.status !== 'PENDING') {
     return { ok: false, status: 'REJECTED', reason: 'Only PENDING requests are eligible.' };
   }
@@ -152,11 +163,18 @@ export function evaluateDeviceReadiness(state, now, maxAgeMs) {
   if (!isFreshTimestamp(state.sensorReceivedAt, now, maxAgeMs)) {
     return { ready: false, reason: 'Sensor telemetry is missing or stale.' };
   }
+  // Every non-zero quality bit marks at least one sensor channel as SUSPECT.
+  if (state.sensorQuality !== 0) {
+    return { ready: false, reason: 'One or more sensor channels are not GOOD.' };
+  }
   if (state.lruStatus !== 'NORMAL') {
     return { ready: false, reason: 'LRU status is not NORMAL.' };
   }
-  if (!isFreshTimestamp(state.lruReceivedAt, now, maxAgeMs)) {
-    return { ready: false, reason: 'LRU status is missing or stale.' };
+  // Current firmware publishes LRU NORMAL once at MQTT connect and then relies
+  // on retained LWT FAIL. The gateway clears this cache on every reconnect, so
+  // a non-zero timestamp proves the retained/current-session state was received.
+  if (!Number.isSafeInteger(state.lruReceivedAt) || state.lruReceivedAt <= 0) {
+    return { ready: false, reason: 'LRU status has not been received in this MQTT session.' };
   }
   if (state.comStatus !== 'NORMAL') {
     return { ready: false, reason: 'COM status is not NORMAL.' };

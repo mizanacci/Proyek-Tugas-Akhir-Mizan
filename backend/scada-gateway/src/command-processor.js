@@ -84,9 +84,10 @@ export class CommandProcessor {
   async process(commandId, command) {
     if (this.inFlight.has(commandId)) return;
     this.inFlight.add(commandId);
+    let resultRef;
 
     try {
-      const resultRef = this.database.ref('command_results/' + commandId);
+      resultRef = this.database.ref('command_results/' + commandId);
       const now = this.clock();
       const claim = await resultRef.transaction((current) => {
         if (current !== null) return;
@@ -186,6 +187,36 @@ export class CommandProcessor {
         await this.writeActivity(commandId, command, profileSnapshot.val(), 'INDETERMINATE',
           'MQTT delivery outcome is uncertain; physical state must be checked.');
       }
+    } catch (error) {
+      // A transient Firebase/profile error must not leave a command forever in
+      // validating. Once dispatch may have started, conservatively classify it
+      // as indeterminate: an MQTT publish could have reached the device.
+      if (resultRef) {
+        try {
+          const snapshot = await resultRef.get();
+          const current = snapshot.val();
+          if (current?.dispatch_state === 'validating') {
+            await resultRef.update({
+              status: 'FAILED',
+              dispatch_state: 'failed',
+              updated_at: this.clock(),
+              detail: 'Gateway failed before MQTT publish: ' + safeError(error),
+            });
+          } else if (['publishing', 'sent'].includes(current?.dispatch_state)) {
+            await resultRef.update({
+              status: 'INDETERMINATE',
+              dispatch_state: 'interrupted',
+              updated_at: this.clock(),
+              detail: 'Gateway failed during/after MQTT publish: ' + safeError(error) +
+                '. Delivery and physical LBS state are unknown; verify feedback before issuing another command.',
+            });
+          }
+        } catch (stateError) {
+          this.logger.error('[Command] Could not finalize failed state for ' +
+            commandId + ': ' + safeError(stateError));
+        }
+      }
+      throw error;
     } finally {
       this.inFlight.delete(commandId);
     }

@@ -1,34 +1,33 @@
 # Alur Data SCADA ke Firebase
 
-```mermaid
-flowchart LR
-  ESP[ESP32] -->|MQTT telemetry| Broker[HiveMQ Cloud]
-  Broker -.->|subscriber belum tersedia| Gateway[SCADA Gateway]
-  Gateway -.->|Firebase Admin SDK writes| RTDB[(Firebase RTDB)]
-  App[Flutter] --> Auth[Firebase Auth]
-  App -->|Manager/Operator reads| RTDB
-  App -->|Operator only: PENDING OPEN/CLOSE| Commands[/commands]
-  Commands -.->|processing belum tersedia| Gateway
-  RTDB --> Telemetry[/telemetry]
-  RTDB --> Results[/command_results]
-  RTDB --> Activity[/data_activity]
-```
+    ESP32-S3
+      ├─ MQTT sensor: scada/mizan/data/sensor (QoS 0, setiap 5 detik)
+      ├─ LRU status: scada/mizan/status/lrufail (retained)
+      ├─ COM status: scada/mizan/status/comfail (retained + heartbeat)
+      └─ subscribe command: scada/mizan/cmd/relay
+                  │
+                  ▼ TLS MQTT
+             HiveMQ Cloud
+                  │
+                  ▼
+       SCADA Gateway (Node.js worker)
+        ├─ telemetry parser -> /telemetry/LBS_01/latest
+        ├─ command validator <- /commands
+        ├─ MQTT publisher -> command topic (disabled by default)
+        ├─ command results -> /command_results
+        └─ audit activity -> /data_activity
+                  ▲
+                  │ Firebase Admin SDK
+             Firebase RTDB
+                  ▲
+                  │ read streams / pending request
+             Flutter SCADA-LBS
+       Firebase Auth + Manager/Operator roles
 
-Firmware mempertahankan MQTT untuk pertukaran data perangkat. Flutter tidak
-subscribe HiveMQ dan tidak publish command relay. Runtime Flutter menggunakan
-Firebase Authentication dan Realtime Database.
+Flutter tidak subscribe HiveMQ dan tidak menulis telemetry, command results, atau Data Activity. Hanya Operator aktif yang dapat membuat request PENDING di /commands.
 
-`EventLogger` hanya mengamati perubahan Firebase Auth dan validasi profil.
-Monitoring membaca telemetry, Data Activity membaca activity, dan kedua role
-membaca commands/results sesuai rules.
+Gateway MVP berada di backend/scada-gateway. Default COMMAND_DISPATCH_ENABLED=false; valid request dicatat sebagai RECEIVED dengan dispatch_state dry_run dan tidak dipublikasikan. PUBLISH hanya dapat diaktifkan setelah mapping OPEN/CLOSE ke NO/NC dikonfirmasi dari ladder/wiring. Bahkan saat MQTT PUBLISH berhasil dikirim, result tetap EXECUTING sampai protokol acknowledgement dan feedback posisi aktual tersedia.
 
-Hanya Operator aktif dapat membuat request baru pada `/commands` dengan status
-`PENDING`. Flutter tidak menulis telemetry, command results, atau
-`data_activity`; record tersebut harus ditulis backend tepercaya. `PENDING`
-berarti request tercatat, bukan command dieksekusi. Backend/gateway belum
-diimplementasikan atau diverifikasi dalam workspace ini.
+Status posisi LBS ditulis UNKNOWN karena firmware aktif belum mengirim auxiliary-contact feedback. LRUFail dan COMFail merupakan status link; COMFail dari firmware adalah estimasi watchdog ESP32, bukan status internal PLC.
 
-Gateway dapat menjadi subscriber MQTT dan menggunakan Firebase Admin SDK untuk
-menulis telemetry, command results, dan audit activity. Kredensial Admin dan
-broker hanya berada di backend. PLC tetap memvalidasi interlock dan proteksi;
-posisi aktual ditentukan oleh feedback telemetry, bukan status request.
+Service harus berjalan terus sebagai satu instance worker. Firebase Admin credentials dan HiveMQ account hanya disimpan sebagai server secrets. Gateway belum dideploy atau diuji terhadap Firebase/HiveMQ live dalam perubahan ini.

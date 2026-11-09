@@ -163,6 +163,19 @@ void main() {
     expect(result.commandId, 'command-1');
   });
 
+  test('parses an indeterminate command result without calling it successful',
+      () {
+    final result = ScadaCommandResult.fromValue('command-2', {
+      'command_id': 'command-2',
+      'status': 'INDETERMINATE',
+      'updated_at': 1200,
+      'detail': 'Delivery and physical position are unknown.',
+    });
+
+    expect(result.status, CommandResultStatus.indeterminate);
+    expect(result.status, isNot(CommandResultStatus.succeeded));
+  });
+
   test('rejects invalid telemetry identity and unknown result state', () {
     expect(
       () => ScadaTelemetry.fromValue('LBS_01', {'device_id': 'OTHER'}),

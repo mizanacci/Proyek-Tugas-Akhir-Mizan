@@ -5,6 +5,7 @@ enum CommandResultStatus {
   failed,
   rejected,
   expired,
+  indeterminate,
 }
 
 class ScadaCommand {
@@ -141,6 +142,7 @@ class ScadaCommandResult {
       'FAILED' => CommandResultStatus.failed,
       'REJECTED' => CommandResultStatus.rejected,
       'EXPIRED' => CommandResultStatus.expired,
+      'INDETERMINATE' => CommandResultStatus.indeterminate,
       _ => throw const FormatException('Unsupported command result status.'),
     };
 

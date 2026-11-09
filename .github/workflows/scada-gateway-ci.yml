@@ -1,0 +1,30 @@
+name: SCADA Gateway CI
+
+on:
+  push:
+    paths:
+      - 'backend/scada-gateway/**'
+      - '.github/workflows/scada-gateway-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/scada-gateway/**'
+      - '.github/workflows/scada-gateway-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  gateway-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/scada-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Install gateway dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Check JavaScript syntax
+        run: for file in src/*.js; do node --check "$file"; done
+      - name: Run gateway unit tests
+        run: npm test

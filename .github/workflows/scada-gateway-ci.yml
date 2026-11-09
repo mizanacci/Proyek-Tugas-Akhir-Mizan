@@ -18,10 +18,11 @@ jobs:
       run:
         working-directory: backend/scada-gateway
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '26'
+          package-manager-cache: false
       - name: Install gateway dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Check JavaScript syntax

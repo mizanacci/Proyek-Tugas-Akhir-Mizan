@@ -97,11 +97,12 @@ test('rejects Manager, inactive, stale, future, or altered requests', () => {
   );
 });
 
-test('requires explicit device readiness before enabled dispatch', () => {
+test('requires fresh sensor, LRU, and COM status before enabled dispatch', () => {
   const state = {
     mqttConnected: true,
     sensorReceivedAt: 900,
     lruStatus: 'NORMAL',
+    lruReceivedAt: 940,
     comStatus: 'NORMAL',
     comReceivedAt: 950,
   };
@@ -112,6 +113,14 @@ test('requires explicit device readiness before enabled dispatch', () => {
   );
   assert.equal(
     evaluateDeviceReadiness({ ...state, sensorReceivedAt: 0 }, 1000, 15_000).ready,
+    false,
+  );
+  assert.equal(
+    evaluateDeviceReadiness({ ...state, lruReceivedAt: 0 }, 1000, 15_000).ready,
+    false,
+  );
+  assert.equal(
+    evaluateDeviceReadiness({ ...state, lruReceivedAt: 1 }, 20_000, 15_000).ready,
     false,
   );
 });

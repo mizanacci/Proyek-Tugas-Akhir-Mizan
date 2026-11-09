@@ -19,6 +19,15 @@ export class TelemetryIngestor {
     this.com = null;
   }
 
+  resetSession() {
+    // Retained broker state must be received again after every reconnect.
+    // Never use pre-disconnect telemetry/status as a dispatch permissive.
+    this.sensor = null;
+    this.sensorReceivedAt = 0;
+    this.lru = null;
+    this.com = null;
+  }
+
   getDeviceState(mqttConnected) {
     return {
       mqttConnected,

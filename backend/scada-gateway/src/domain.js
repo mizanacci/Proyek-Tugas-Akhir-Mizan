@@ -138,20 +138,30 @@ export function evaluateCommandProfile(command, profile) {
   return { ok: true };
 }
 
+function isFreshTimestamp(timestamp, now, maxAgeMs) {
+  return Number.isSafeInteger(timestamp) &&
+    timestamp > 0 &&
+    timestamp <= now + 5_000 &&
+    now - timestamp <= maxAgeMs;
+}
+
 export function evaluateDeviceReadiness(state, now, maxAgeMs) {
   if (!state?.mqttConnected) {
     return { ready: false, reason: 'MQTT broker is disconnected.' };
   }
-  if (!state.sensorReceivedAt || now - state.sensorReceivedAt > maxAgeMs) {
+  if (!isFreshTimestamp(state.sensorReceivedAt, now, maxAgeMs)) {
     return { ready: false, reason: 'Sensor telemetry is missing or stale.' };
   }
   if (state.lruStatus !== 'NORMAL') {
     return { ready: false, reason: 'LRU status is not NORMAL.' };
   }
+  if (!isFreshTimestamp(state.lruReceivedAt, now, maxAgeMs)) {
+    return { ready: false, reason: 'LRU status is missing or stale.' };
+  }
   if (state.comStatus !== 'NORMAL') {
     return { ready: false, reason: 'COM status is not NORMAL.' };
   }
-  if (!state.comReceivedAt || now - state.comReceivedAt > maxAgeMs) {
+  if (!isFreshTimestamp(state.comReceivedAt, now, maxAgeMs)) {
     return { ready: false, reason: 'COM status heartbeat is missing or stale.' };
   }
   return { ready: true };

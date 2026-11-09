@@ -46,6 +46,12 @@ async function main() {
     },
   });
 
+  const invalidateDeviceSession = (reason) => {
+    mqttConnected = false;
+    telemetry.resetSession();
+    log('error', reason + '; cached telemetry and link status invalidated.');
+  };
+
   const processor = new CommandProcessor({
     database,
     mqttClient,
@@ -61,20 +67,21 @@ async function main() {
   const detachCommandListener = processor.attach();
 
   mqttClient.on('connect', () => {
+    telemetry.resetSession();
     mqttConnected = true;
-    log('info', 'MQTT connected over TLS.');
+    log('info', 'MQTT connected over TLS; waiting for fresh telemetry and retained link states.');
     mqttClient.subscribe({
       [config.sensorTopic]: { qos: 0 },
       [config.lruTopic]: { qos: 1 },
       [config.comTopic]: { qos: 1 },
     }, (error, granted) => {
       if (error) {
-        log('error', 'MQTT subscription failed: ' + error.message);
+        invalidateDeviceSession('MQTT subscription failed: ' + error.message);
         return;
       }
       const refused = granted.filter((item) => item.qos === 128);
       if (refused.length) {
-        log('error', 'Broker refused one or more required telemetry subscriptions.');
+        invalidateDeviceSession('Broker refused one or more required telemetry subscriptions');
       } else {
         log('info', 'MQTT telemetry/status subscriptions acknowledged.');
       }
@@ -82,20 +89,16 @@ async function main() {
   });
 
   mqttClient.on('reconnect', () => {
-    mqttConnected = false;
-    log('info', 'MQTT reconnecting.');
+    invalidateDeviceSession('MQTT reconnecting');
   });
   mqttClient.on('offline', () => {
-    mqttConnected = false;
-    log('error', 'MQTT client is offline.');
+    invalidateDeviceSession('MQTT client is offline');
   });
   mqttClient.on('close', () => {
-    mqttConnected = false;
-    log('error', 'MQTT connection closed.');
+    invalidateDeviceSession('MQTT connection closed');
   });
   mqttClient.on('error', (error) => {
-    mqttConnected = false;
-    log('error', 'MQTT client error: ' + error.message);
+    invalidateDeviceSession('MQTT client error: ' + error.message);
   });
 
   mqttClient.on('message', (topic, payload) => {

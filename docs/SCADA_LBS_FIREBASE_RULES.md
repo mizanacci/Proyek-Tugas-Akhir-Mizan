@@ -28,14 +28,16 @@ Updates and deletes are denied. A successful client write means only that a
 request was recorded; it does not mean the gateway or PLC executed it.
 
 Telemetry, command results, and activity are backend-owned. No gateway identity
-is added to `/users`; the gateway uses Firebase Admin SDK, which bypasses RTDB
-Rules. Backend code must independently validate operator UID/role/active state,
-target, action, command age, idempotency, duplicate handling, and gateway
-connectivity. PLC permissives, interlocks, and protection remain authoritative.
+is added to `/users`; the Gateway Firebase app uses
+`databaseAuthVariableOverride.uid = scada-lbs-gateway`, so its RTDB operations
+are evaluated as that service identity. Backend code must independently validate
+operator UID/role/active state, target, action, command age, idempotency,
+duplicate handling, and gateway connectivity. PLC permissives, interlocks, and
+protection remain authoritative.
 
 Rules `.write` grants are separate from `.validate`; validation never grants
-authorization. Parent root access stays denied. Admin SDK writes bypass these
-rules and need their own server-side validation and access controls.
+authorization. Parent root access stays denied. The scoped Gateway identity
+must still use server-side validation and access controls.
 
 ## Manual test matrix
 

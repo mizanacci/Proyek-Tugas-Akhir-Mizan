@@ -1,0 +1,5 @@
+{
+  "database": {
+    "rules": "flutter_app_skeleton/database.rules.json"
+  }
+}

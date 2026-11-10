@@ -2,38 +2,195 @@
   "rules": {
     ".read": false,
     ".write": false,
+
     "users": {
       "$uid": {
-        ".read": "auth != null && auth.uid == $uid",
+        ".read": "auth != null && (auth.uid == $uid || auth.uid == 'scada-lbs-gateway')",
         ".write": false
       }
     },
+
     "commands": {
-      ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
+      ".read": "auth != null && (auth.uid == 'scada-lbs-gateway' || (root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')))",
       ".indexOn": ["created_at"],
+
       "$commandId": {
-        ".write": "auth != null && !data.exists() && root.child('users').child(auth.uid).child('isActive').val() == true && root.child('users').child(auth.uid).child('role').val() == 'operator' && newData.child('created_by_uid').val() == auth.uid && newData.child('created_by_name').val() == root.child('users').child(auth.uid).child('displayName').val() && newData.child('target').val() == 'LBS_01' && (newData.child('action').val() == 'OPEN' || newData.child('action').val() == 'CLOSE') && newData.child('status').val() == 'PENDING' && newData.child('created_at').val() == now",
-        ".validate": "newData.hasChildren(['target','action','created_at','created_by_uid','created_by_name','status'])",
-        "target": { ".validate": "newData.isString() && newData.val() == 'LBS_01'" },
-        "action": { ".validate": "newData.isString() && (newData.val() == 'OPEN' || newData.val() == 'CLOSE')" },
-        "created_at": { ".validate": "newData.isNumber() && newData.val() == now" },
-        "created_by_uid": { ".validate": "newData.isString() && newData.val() == auth.uid" },
-        "created_by_name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120" },
-        "status": { ".validate": "newData.isString() && newData.val() == 'PENDING'" },
-        "$other": { ".validate": false }
+        ".write": "auth != null && newData.exists() && !data.exists() && root.child('users').child(auth.uid).child('isActive').val() == true && root.child('users').child(auth.uid).child('role').val() == 'operator' && newData.child('created_by_uid').val() == auth.uid && newData.child('created_by_name').val() == root.child('users').child(auth.uid).child('displayName').val()",
+
+        ".validate": "newData.hasChildren(['target', 'action', 'created_at', 'created_by_uid', 'created_by_name', 'status'])",
+
+        "target": {
+          ".validate": "newData.isString() && newData.val() == 'LBS_01'"
+        },
+
+        "action": {
+          ".validate": "newData.isString() && (newData.val() == 'OPEN' || newData.val() == 'CLOSE')"
+        },
+
+        "created_at": {
+          ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= now && newData.val() >= now - 300000"
+        },
+
+        "created_by_uid": {
+          ".validate": "newData.isString() && newData.val() == auth.uid"
+        },
+
+        "created_by_name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120 && newData.val() == root.child('users').child(auth.uid).child('displayName').val()"
+        },
+
+        "status": {
+          ".validate": "newData.isString() && newData.val() == 'PENDING'"
+        },
+
+        "$other": {
+          ".validate": false
+        }
       }
     },
+
     "command_results": {
-      ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
-      ".indexOn": ["updated_at"]
+      ".read": "auth != null && (auth.uid == 'scada-lbs-gateway' || (root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')))",
+      ".indexOn": ["updated_at"],
+
+      "$commandId": {
+        ".write": "auth != null && auth.uid == 'scada-lbs-gateway' && newData.exists() && root.child('commands').child($commandId).exists()",
+
+        ".validate": "newData.hasChildren(['command_id', 'status', 'dispatch_state', 'updated_at', 'detail'])",
+
+        "command_id": {
+          ".validate": "newData.isString() && newData.val() == $commandId"
+        },
+
+        "status": {
+          ".validate": "newData.isString() && (newData.val() == 'RECEIVED' || newData.val() == 'EXECUTING' || newData.val() == 'SUCCEEDED' || newData.val() == 'FAILED' || newData.val() == 'REJECTED' || newData.val() == 'EXPIRED' || newData.val() == 'INDETERMINATE')"
+        },
+
+        "dispatch_state": {
+          ".validate": "newData.isString() && (newData.val() == 'validating' || newData.val() == 'dry_run' || newData.val() == 'rejected' || newData.val() == 'publishing' || newData.val() == 'sent' || newData.val() == 'interrupted' || newData.val() == 'failed')"
+        },
+
+        "updated_at": {
+          ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= now + 30000"
+        },
+
+        "detail": {
+          ".validate": "newData.isString() && newData.val().length <= 500"
+        },
+
+        "$other": {
+          ".validate": false
+        }
+      }
     },
+
     "telemetry": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
-      "$deviceId": { ".indexOn": ["timestamp"] }
+
+      "$deviceId": {
+        ".indexOn": ["timestamp"],
+
+        "latest": {
+          ".write": "auth != null && auth.uid == 'scada-lbs-gateway' && $deviceId == 'LBS_01' && newData.exists()",
+
+          ".validate": "newData.hasChildren(['device_id', 'timestamp', 'device_ts_ms', 'received_at', 'v_sumber', 'v_beban', 'i_sumber', 'i_beban', 'kualitas', 'status_lru', 'status_com', 'status_lbs'])",
+
+          "device_id": {
+            ".validate": "newData.isString() && newData.val() == $deviceId"
+          },
+
+          "timestamp": {
+            ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= now + 30000"
+          },
+
+          "device_ts_ms": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+
+          "received_at": {
+            ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= now + 30000"
+          },
+
+          "v_sumber": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+
+          "v_beban": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+
+          "i_sumber": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+
+          "i_beban": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+
+          "kualitas": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 15"
+          },
+
+          "status_lru": {
+            ".validate": "newData.isString() && (newData.val() == 'NORMAL' || newData.val() == 'FAIL' || newData.val() == 'UNKNOWN')"
+          },
+
+          "status_com": {
+            ".validate": "newData.isString() && (newData.val() == 'NORMAL' || newData.val() == 'FAIL' || newData.val() == 'UNKNOWN')"
+          },
+
+          "status_lbs": {
+            ".validate": "newData.isString() && newData.val() == 'UNKNOWN'"
+          },
+
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
     },
+
     "data_activity": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('isActive').val() == true && (root.child('users').child(auth.uid).child('role').val() == 'manager' || root.child('users').child(auth.uid).child('role').val() == 'operator')",
-      ".indexOn": ["timestamp"]
+      ".indexOn": ["timestamp"],
+
+      "$entryId": {
+        ".write": "auth != null && auth.uid == 'scada-lbs-gateway' && newData.exists() && !data.exists() && newData.child('jenis').val() == 'PERINTAH' && newData.child('sumber').val() == 'gateway' && newData.child('command_id').isString() && newData.child('oleh_uid').isString() && newData.child('oleh_nama').isString() && root.child('commands').child(newData.child('command_id').val()).exists() && newData.child('oleh_uid').val() == root.child('commands').child(newData.child('command_id').val()).child('created_by_uid').val() && newData.child('oleh_nama').val() == root.child('commands').child(newData.child('command_id').val()).child('created_by_name').val()",
+
+        ".validate": "newData.hasChildren(['timestamp', 'jenis', 'keterangan', 'oleh_uid', 'oleh_nama', 'sumber', 'command_id'])",
+
+        "timestamp": {
+          ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= now + 30000"
+        },
+
+        "jenis": {
+          ".validate": "newData.isString() && newData.val() == 'PERINTAH'"
+        },
+
+        "keterangan": {
+          ".validate": "newData.isString() && newData.val().length <= 300"
+        },
+
+        "oleh_uid": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+        },
+
+        "oleh_nama": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120"
+        },
+
+        "sumber": {
+          ".validate": "newData.isString() && newData.val() == 'gateway'"
+        },
+
+        "command_id": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+        },
+
+        "$other": {
+          ".validate": false
+        }
+      }
     }
   }
 }

@@ -3,3 +3,7 @@
 
 # Firmware credentials
 firmware_esp32/src/config.h
+node_modules
+.firebase/
+firebase-debug.log
+database-debug.log

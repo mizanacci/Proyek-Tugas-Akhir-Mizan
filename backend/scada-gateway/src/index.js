@@ -1,8 +1,9 @@
-import { initializeApp, applicationDefault, deleteApp } from 'firebase-admin/app';
+import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 import mqtt from 'mqtt';
 import { loadConfig } from './config.js';
 import { CommandProcessor } from './command-processor.js';
+import { GATEWAY_APP_NAME, gatewayAppOptions } from './firebase-app.js';
 import { TelemetryIngestor } from './telemetry-ingestor.js';
 
 function log(level, message) {
@@ -16,10 +17,10 @@ function log(level, message) {
 
 async function main() {
   const config = loadConfig();
-  const firebaseApp = initializeApp({
-    credential: applicationDefault(),
-    databaseURL: config.firebaseDatabaseUrl,
-  }, 'scada-lbs-gateway');
+  const firebaseApp = initializeApp(
+    gatewayAppOptions(config.firebaseDatabaseUrl),
+    GATEWAY_APP_NAME,
+  );
   const database = getDatabase(firebaseApp);
 
   const mqttClient = mqtt.connect(config.mqttUrl, {

@@ -28,7 +28,7 @@ The MVP is for one running instance only. Do not configure multiple replicas or 
 ## Prerequisites
 
 - Node.js 26 LTS.
-- A Firebase Admin identity with database access to the scada-lbs RTDB only.
+- A Firebase service identity with database access limited by the `scada-lbs-gateway` RTDB auth override.
 - A dedicated HiveMQ account with TLS access and ACLs limited to the three telemetry/status topics and command topic.
 - No credentials in the repository, APK, or chat.
 
@@ -54,7 +54,10 @@ The service does not need a public HTTP endpoint. It must run continuously. Rend
 - Writes /telemetry/LBS_01/latest.
 - Appends /data_activity/{pushId}.
 
-The Flutter client reads these records. Firebase Admin SDK bypasses RTDB Rules, so the gateway revalidates authorization and validates every incoming record itself.
+The Flutter client reads these records. The Gateway Firebase app uses
+`databaseAuthVariableOverride.uid = scada-lbs-gateway`, so these operations are
+evaluated by RTDB Rules; the gateway still revalidates authorization and validates
+every incoming record itself.
 
 ## Command result semantics
 

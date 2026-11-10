@@ -92,7 +92,10 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   // Kirim ke Core 1 melalui queue — JANGAN memanggil fungsi modul Modbus
   // secara langsung dari sini (callback ini berjalan di konteks Core 0).
-  xQueueOverwrite(queuePerintahRemote, &nilai);
+  if (xQueueSend(queuePerintahRemote, &nilai, 0) != pdTRUE) {
+    Serial.printf("[MQTT] Command ditolak: antrean remote penuh (nilai=%u)\n",
+                  nilai);
+  }
 }
 
 static void wifiConnect() {

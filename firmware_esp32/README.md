@@ -13,6 +13,15 @@ Ringkasan desain untuk referensi cepat dan bahan BAB 4. Detail lengkap ada di ko
 | `src/shared_state.h` | Primitif FreeRTOS (queue + volatile bool) untuk komunikasi aman Core 0 ↔ Core 1 |
 | `src/main.cpp` | `setup()`/`loop()`, pembuatan dua task dual-core |
 
+## Kontrak MQTT dan antrean command
+
+Firmware menerima command hanya dari gateway pada
+`scada/mizan/cmd/relay`, dengan payload `{"command":"NO"}` atau
+`{"command":"NC"}`. Flutter tidak publish relay command langsung.
+Antrean command antar-core memiliki kapasitas terbatas dan FIFO; command baru
+ditolak dengan log jelas jika penuh, tidak menimpa command lama. MQTT belum
+memiliki command ID atau correlated acknowledgement perangkat.
+
 ## Topic Status MQTT
 
 | Topic | Perilaku |

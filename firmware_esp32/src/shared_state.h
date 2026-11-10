@@ -15,7 +15,7 @@
  *                        publish MQTT). Queue satu-slot dengan overwrite,
  *                        karena hanya nilai TERBARU yang relevan.
  *   - queuePerintahRemote : Core 0 -> Core 1 (perintah NO/NC dari
- *                        aplikasi mobile via MQTT, untuk ditulis ke
+ *                        gateway via MQTT, FIFO berbatas, untuk ditulis ke
  *                        register Modbus REG_CMD_REMOTE oleh Core 1).
  *
  * Status koneksi MQTT (untuk mengisi REG_LRUFAIL) dilewatkan sebagai
@@ -32,8 +32,10 @@
 #include <freertos/queue.h>
 #include "sensors.h"
 
+constexpr UBaseType_t REMOTE_COMMAND_QUEUE_LENGTH = 4;
+
 extern QueueHandle_t queueDataSensor;      // isi: struct HasilSensor
-extern QueueHandle_t queuePerintahRemote;  // isi: uint16_t (0/1/2)
+extern QueueHandle_t queuePerintahRemote;  // FIFO isi: uint16_t (0/1/2)
 extern volatile bool statusMqttTerhubung;      // ditulis Core 0, dibaca Core 1 (-> REG_LRUFAIL)
 extern volatile bool statusComFailEstimasiLokal; // ditulis Core 1, dibaca Core 0 (-> publish MQTT)
 

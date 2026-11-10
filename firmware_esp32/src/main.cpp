@@ -73,9 +73,16 @@ static void taskAdcModbus(void* parameter) {
 
     // --- Terima perintah remote dari Core 0 (jika ada) dan tuliskan ke
     //     register Modbus (hanya Core 1 yang menyentuh objek Modbus 'mb') ---
-    uint16_t perintahBaru;
-    if (xQueueReceive(queuePerintahRemote, &perintahBaru, 0) == pdTRUE) {
-      modbusTulisPerintahRemote(perintahBaru);
+    if (modbusBacaRegisterCommand() == 0) {
+      uint16_t perintahBaru;
+      if (xQueueReceive(queuePerintahRemote, &perintahBaru, 0) == pdTRUE) {
+        if (perintahBaru == 1 || perintahBaru == 2) {
+          modbusTulisPerintahRemote(perintahBaru);
+        } else {
+          Serial.printf("[MODBUS] Command ditolak: nilai tidak valid (%u)\n",
+                        perintahBaru);
+        }
+      }
     }
 
     // --- Siklus RMS + update register + kirim ke Core 0, setiap
@@ -87,7 +94,7 @@ static void taskAdcModbus(void* parameter) {
       HasilSensor hasil = bacaSemuaSensor();
       unsigned long durasiBacaSensor = micros() - mulaiBacaSensor;
       modbusUpdateHasilSensor(hasil);
-      modbusUpdateLRUFail(statusMqttTerhubung);  // baca status dari Core 0 (volatile bool, aman)
+      modbusUpdateLRUFail(!statusMqttTerhubung);  // true berarti MQTT gagal
 
       statusComFailEstimasiLokal = modbusEstimasiComFailLokal();
       if (++jumlahSiklus % 5 == 0) {
@@ -131,10 +138,11 @@ void setup() {
   delay(300);
   Serial.println("\n=== Firmware SCADA Distribusi Listrik — Boot ===");
 
-  // Queue satu-slot (panjang 1) untuk masing-masing arah komunikasi
-  // antar-core, sesuai desain di shared_state.h.
+  // Sensor memakai latest-sample semantics; command remote memakai FIFO
+  // berbatas agar command lama tidak tertimpa diam-diam.
   queueDataSensor = xQueueCreate(1, sizeof(HasilSensor));
-  queuePerintahRemote = xQueueCreate(1, sizeof(uint16_t));
+  queuePerintahRemote = xQueueCreate(REMOTE_COMMAND_QUEUE_LENGTH,
+                                     sizeof(uint16_t));
 
   if (queueDataSensor == nullptr || queuePerintahRemote == nullptr) {
     Serial.println("[FATAL] Gagal membuat queue FreeRTOS — periksa memori heap tersedia.");

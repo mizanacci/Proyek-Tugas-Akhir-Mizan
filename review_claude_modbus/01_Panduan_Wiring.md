@@ -2,7 +2,7 @@
 
 **Tugas Akhir:** Perancangan Prototipe Sistem SCADA Distribusi Listrik Berbasis PLC OMRON yang Terintegrasi dengan Platform Monitoring IoT
 **Penyusun:** Almar'u Zaim Mizan (04231006) — Teknik Elektro, Institut Teknologi Kalimantan
-**Revisi:** hardware final — ESP32-S3 DevKitC-1 (N8R2/N16R8) + ADS1115 (ADC eksternal 16-bit I2C) + ZMPT101B/ACS712 asli. *(Dokumen ini menggantikan revisi sebelumnya yang masih berbasis ESP32 DevKit V4 klasik dengan ADC bawaan.)*
+**Revisi:** ESP32-S3 DevKitC-1 dengan ADC internal, 2× ZMPT101B, 2× ACS712, dan MAX3232. ADS1115 tidak digunakan pada firmware aktif.
 **Status:** Draf implementasi — seluruh nilai yang ditandai *(perlu dikonfirmasi)* wajib diverifikasi terhadap datasheet komponen fisik sebelum eksekusi.
 
 ---
@@ -16,12 +16,10 @@
 | Input digital | Push button NO | PLC input 0.02 |
 | Input digital | Push button NC | PLC input 0.03 |
 | Output digital | Koil relay MY2N | PLC output 100.00 |
-| I2C (ESP32-S3 ↔ ADS1115) | SDA | GPIO8 |
-| I2C (ESP32-S3 ↔ ADS1115) | SCL | GPIO9 |
-| Analog (ADS1115) | ZMPT101B sisi sumber | Kanal A0 |
-| Analog (ADS1115) | ZMPT101B sisi beban | Kanal A1 |
-| Analog (ADS1115) | ACS712 sisi sumber | Kanal A2 |
-| Analog (ADS1115) | ACS712 sisi beban | Kanal A3 |
+| ADC internal ESP32-S3 | ZMPT101B sisi sumber | GPIO4 |
+| ADC internal ESP32-S3 | ZMPT101B sisi beban | GPIO5 |
+| ADC internal ESP32-S3 | ACS712 sisi sumber | GPIO6 |
+| ADC internal ESP32-S3 | ACS712 sisi beban | GPIO7 |
 | Serial (ESP32-S3 ↔ PLC) | MAX3232 TXD/RXD/GND | UART: TX=GPIO17, RX=GPIO18 |
 
 > Alokasi input/output digital PLC mengikuti Tabel 3.15 dan 3.16 pada draft TA versi 2. Peta register Modbus dan penjelasan desain lengkap ada di `firmware_esp32/README.md`.
@@ -37,23 +35,22 @@ Prototipe ini melibatkan **tegangan AC 220V** pada sisi motor/beban. Kelalaian p
 3. **Pisahkan secara fisik** jalur kabel AC 220V dari jalur sinyal DC bertegangan rendah (I2C, sensor, komunikasi serial, koil relay) — gunakan jalur kabel/duct terpisah, jangan diikat bersama.
 4. **Gunakan alas kerja kering dan non-konduktif.** Jangan bekerja di lantai basah atau dengan tangan basah.
 5. **Uji kontinuitas dan short-circuit dengan multimeter** (dalam keadaan tidak bertegangan) sebelum menyalakan sistem pertama kali.
-6. **Nyalakan bertahap**: pertama catu daya DC saja (verifikasi ESP32-S3, ADS1115, dan PLC menyala normal, tanpa motor tersambung), baru kemudian sisi AC.
-7. **GPIO ESP32-S3 hanya tahan tegangan maksimum 3,3V** — jangan sentuhkan sinyal apa pun di atas itu langsung ke pin GPIO (termasuk pin I2C SDA/SCL). ADS1115 sendiri dapat menerima input analog sesuai rentang gain yang dikonfigurasi firmware (±4,096V pada pengaturan `GAIN_ONE`) — tapi ini bukan alasan untuk sembarangan; tetap ikuti rentang keluaran sensor yang sudah dikondisikan modul ZMPT101B/ACS712.
+6. **Nyalakan bertahap**: pertama catu daya DC saja (verifikasi ESP32-S3 dan PLC menyala normal, tanpa motor tersambung), baru kemudian sisi AC.
+7. **GPIO ESP32-S3 hanya tahan tegangan maksimum 3,3V** — pastikan keluaran analog setiap modul sensor tetap dalam rentang ADC dan jangan melebihi batas pin GPIO.
 8. Jika ragu pada satu langkah mana pun, hentikan dan konsultasikan ke pembimbing/laboran sebelum melanjutkan.
 
 ---
 
 ## 2. Urutan Kerja Keseluruhan
 
-1. Siapkan seluruh komponen: PLC OMRON CP1E-N30DR-A, ESP32-S3 DevKitC-1, modul ADS1115, modul MAX3232, 2× ZMPT101B, 2× ACS712, relay MY2N, motor 1 fasa, 4 push button.
-2. Rakit jalur catu daya DC (3,3V/5V ke sensor, ESP32-S3, dan ADS1115; 24VDC ke koil relay — *(perlu dikonfirmasi terhadap varian MY2N yang dipakai)*) — **tanpa AC tersambung**.
-3. Pasang dan awat ADS1115 ke bus I2C ESP32-S3 (GPIO8/GPIO9).
-4. Pasang dan awat keempat sensor (2× ZMPT101B, 2× ACS712) ke kanal A0-A3 ADS1115.
+1. Siapkan PLC OMRON CP1E-N30DR-A, ESP32-S3 DevKitC-1, MAX3232, 2× ZMPT101B, 2× ACS712, relay MY2N, motor 1 fasa, dan 4 push button.
+2. Rakit jalur catu daya DC sensor/logika serta catu koil relay sesuai rating komponen — **tanpa AC tersambung**.
+3. Hubungkan output analog ke GPIO4-GPIO7 sesuai tabel di atas.
 5. Pasang dan awat modul MAX3232 antara UART ESP32-S3 (GPIO17/GPIO18) dan port RS-232C bawaan PLC.
 6. Pasang dan awat keempat push button ke input digital PLC.
 7. Pasang dan awat koil relay MY2N ke output digital PLC, dengan kontak relay pada jalur AC yang **masih terputus**.
 8. Periksa ulang seluruh sambungan DC dengan multimeter (kontinuitas, tidak ada short antar-jalur).
-9. Nyalakan catu daya DC, verifikasi ESP32-S3, ADS1115 (LED indikator power bila ada), dan PLC boot normal.
+9. Nyalakan catu daya DC, verifikasi ESP32-S3 dan PLC boot normal.
 10. Baru setelah langkah 9 berhasil, sambungkan jalur AC 220V ke motor melalui kontak relay.
 11. Lakukan uji fungsi bertahap sesuai rencana pengujian pada Sub-bab 3.4.6 proposal.
 
@@ -63,48 +60,46 @@ Prototipe ini melibatkan **tegangan AC 220V** pada sisi motor/beban. Kelalaian p
 
 | Jalur | Tegangan | Tujuan | Catatan |
 |---|---|---|---|
-| DC logika | 3,3V (dari ESP32-S3) atau 5V terpisah | ADS1115, modul ZMPT101B ×2, ACS712 ×2 | ADS1115 mendukung 2,0–5,5V — sambungkan VDD ADS1115 ke **3,3V** ESP32-S3 agar level logika I2C konsisten, bukan 5V |
+| DC logika | Sesuai rating tiap modul | ESP32-S3 dan sensor | Pastikan keluaran analog sensor tidak melebihi rentang aman ADC ESP32-S3 |
 | DC koil relay | 24VDC *(perlu dikonfirmasi — sesuaikan varian MY2N, lihat proposal Tabel 3.6)* | Koil relay MY2N | **Jangan disatukan** dengan jalur 3,3V/5V logika — gunakan adaptor/regulator terpisah |
 | AC beban | 220VAC | Motor listrik 1 fasa (melalui kontak relay) | Sambungkan **terakhir**, lihat Bagian 1 |
 | Catu daya PLC | 100–240VAC | Unit CPU PLC OMRON CP1E-N30DR-A | Ikuti label rating pada body PLC |
 
 ---
 
-## 4. ADS1115 ↔ ESP32-S3 (Bus I2C)
+## 4. ADC Internal ESP32-S3
 
-| Pin ADS1115 | Ke ESP32-S3 |
+Firmware aktif menggunakan `analogReadMilliVolts()` pada ADC internal 12-bit. Jalur pembacaan sensor tidak menggunakan I2C atau ADS1115.
+
+| Sensor | Pin ADC |
 |---|---|
-| VDD | 3,3V |
-| GND | GND |
-| SCL | GPIO9 |
-| SDA | GPIO8 |
-| ADDR | GND (alamat I2C default `0x48`) |
-| ALRT | Tidak disambungkan (tidak dipakai firmware) |
+| ZMPT101B sumber | GPIO4 |
+| ZMPT101B beban | GPIO5 |
+| ACS712 sumber | GPIO6 |
+| ACS712 beban | GPIO7 |
 
-**Langkah:**
-1. Sambungkan VDD, GND, SCL, SDA, dan ADDR sesuai tabel di atas.
-2. Bila di kemudian hari perlu menambah modul ADS1115 kedua (misalnya untuk sensor tambahan), ADDR dapat disambungkan ke VDD/SDA/SCL untuk mendapat alamat I2C berbeda (`0x49`/`0x4A`/`0x4B`) — di luar cakupan desain saat ini yang hanya memakai satu modul untuk 4 kanal.
+Periksa tegangan keluaran analog dan ground setiap modul terhadap rangkaian aktual sebelum menyambungkan ke GPIO.
 3. Pin GPIO0 dan GPIO3 pada ESP32-S3 **sengaja dihindari** untuk keperluan apa pun di luar boot — keduanya pin *strapping* yang menentukan mode boot chip; memasang beban di situ saat power-on berisiko board gagal boot.
 
 ---
 
-## 5. Sensor Tegangan & Arus → Kanal ADS1115
+## 5. Sensor Tegangan & Arus → ADC Internal
 
-| Sensor | Posisi Pengukuran | Kanal ADS1115 |
+| Sensor | Posisi Pengukuran | GPIO ESP32-S3 |
 |---|---|---|
-| ZMPT101B #1 | Sisi sumber (sebelum relay MY2N) | A0 |
-| ZMPT101B #2 | Sisi beban (sesudah relay MY2N) | A1 |
-| ACS712 #1 | Sisi sumber (sebelum relay MY2N) | A2 |
-| ACS712 #2 | Sisi beban (sesudah relay MY2N) | A3 |
+| ZMPT101B #1 | Sisi sumber (sebelum relay MY2N) | GPIO4 |
+| ZMPT101B #2 | Sisi beban (sesudah relay MY2N) | GPIO5 |
+| ACS712 #1 | Sisi sumber (sebelum relay MY2N) | GPIO6 |
+| ACS712 #2 | Sisi beban (sesudah relay MY2N) | GPIO7 |
 
 **Langkah pengawatan per sensor:**
-1. Sambungkan pin VCC modul ke jalur 3,3V/5V *(sesuai spesifikasi modul masing-masing — cek datasheet, ZMPT101B dan ACS712 umumnya toleran 3,3–5V)*, GND modul ke GND bersama (common ground dengan ESP32-S3 dan ADS1115 — **wajib**, tanpa ground bersama pembacaan ADC akan mengambang/tidak akurat).
-2. Sambungkan pin output analog modul (label "Out"/"OUT" pada ACS712, output sekunder pada ZMPT101B) ke kanal A0-A3 ADS1115 sesuai tabel di atas — **bukan** langsung ke pin GPIO ESP32-S3.
+1. Sambungkan catu dan ground setiap modul sesuai datasheet dan rangkaian isolasi yang digunakan.
+2. Sambungkan output analog sensor ke GPIO4-GPIO7 sesuai tabel dan pastikan level sinyal aman untuk ADC ESP32-S3.
 3. Untuk ACS712: jalur konduktor yang arusnya diukur dilewatkan melalui lubang sensor pada modul (bukan disolder ke pin sensor) — pastikan arah arus sesuai tanda panah pada body modul agar pembacaan tidak terbalik polaritas.
 4. Untuk ZMPT101B: sisi primer (tegangan tinggi) disambungkan paralel terhadap titik ukur (sumber/beban), **bukan** seri — modul ini adalah transformator step-down presisi, kesalahan menyambung seri dapat merusak modul dan/atau menyebabkan rangkaian terbuka pada jalur yang diukur.
 5. Ulangi untuk seluruh 4 modul, dengan titik ukur sumber sebelum kontak relay dan titik ukur beban sesudah kontak relay.
 
-⚠️ **ZMPT101B mengukur tegangan AC 220V pada sisi primer.** Ikuti prosedur keselamatan Bagian 1 — kerjakan sisi ini hanya setelah seluruh AC diputus, dan gunakan dokumen `02_Panduan_Kalibrasi_ZMPT101B.md` untuk prosedur kalibrasi amannya. **Kalibrasi wajib diulang** dengan setup ADS1115 ini — koefisien dari kalibrasi ADC bawaan ESP32 sebelumnya tidak berlaku lagi (resolusi dan rentang tegangan referensinya berbeda).
+⚠️ **ZMPT101B mengukur tegangan AC pada sisi primer.** Ikuti prosedur keselamatan Bagian 1 dan dokumen `02_Panduan_Kalibrasi_ZMPT101B.md`. Jangan ubah koefisien firmware tanpa hasil ukur aktual dan persetujuan.
 
 ---
 
@@ -141,7 +136,7 @@ Prototipe ini melibatkan **tegangan AC 220V** pada sisi motor/beban. Kelalaian p
 
 **Langkah pengawatan:**
 1. Setiap push button disambungkan antara terminal input PLC yang sesuai dan terminal common (COM) input PLC — verifikasi konfigurasi sinking (NPN) atau sourcing (PNP) PLC sebelum menentukan sisi common yang benar *(perlu dikonfirmasi)*.
-2. Push button NC dan NO terhubung **langsung** ke input PLC tanpa melalui ESP32-S3 (jalur lokal *hardwired*) — pastikan kabel ini tidak tercampur dengan jalur sinyal ESP32-S3/ADS1115.
+2. Push button NC dan NO terhubung **langsung** ke input PLC tanpa melalui ESP32-S3 (jalur lokal *hardwired*) — pisahkan pengawatan sinyal dari jalur AC.
 3. Koil relay MY2N disambungkan ke output 100.00 PLC melalui catu daya DC koil (lihat Bagian 3) — **kontak** relay (yang menyambung/memutus 220VAC ke motor) adalah rangkaian fisik terpisah dari koil.
 
 ---
@@ -156,12 +151,10 @@ Prototipe ini melibatkan **tegangan AC 220V** pada sisi motor/beban. Kelalaian p
 | PLC Input | NC (tutup) | 0.03 |
 | PLC Output | Koil Relay MY2N | 100.00 |
 | PLC Serial | RS-232C bawaan (DB9: pin 2 SD, pin 3 RD, pin 9 SG) | Port bawaan CPU |
-| ESP32-S3 I2C | SDA → ADS1115 | GPIO8 |
-| ESP32-S3 I2C | SCL → ADS1115 | GPIO9 |
-| ADS1115 | ZMPT101B sumber | A0 |
-| ADS1115 | ZMPT101B beban | A1 |
-| ADS1115 | ACS712 sumber | A2 |
-| ADS1115 | ACS712 beban | A3 |
+| ESP32-S3 ADC internal | ZMPT101B sumber | GPIO4 |
+| ESP32-S3 ADC internal | ZMPT101B beban | GPIO5 |
+| ESP32-S3 ADC internal | ACS712 sumber | GPIO6 |
+| ESP32-S3 ADC internal | ACS712 beban | GPIO7 |
 | ESP32-S3 UART | TX → MAX3232 RXD | GPIO17 |
 | ESP32-S3 UART | RX ← MAX3232 TXD | GPIO18 |
 
@@ -170,9 +163,8 @@ Prototipe ini melibatkan **tegangan AC 220V** pada sisi motor/beban. Kelalaian p
 ## 9. Verifikasi Akhir Sebelum Uji Coba
 
 - [ ] Seluruh sambungan DC diperiksa dengan multimeter (kontinuitas benar, tidak ada short)
-- [ ] Ground bersama (common ground) antara ESP32-S3, ADS1115, sensor, dan MAX3232 terkonfirmasi
+- [ ] Ground/reference dan batas tegangan ADC sudah diperiksa untuk modul aktual
 - [ ] Jalur AC 220V terpisah fisik dari jalur sinyal DC
-- [ ] ADDR ADS1115 tersambung ke GND (alamat 0x48)
 - [ ] Arah pemasangan ACS712 (panah arus) sesuai
 - [ ] ZMPT101B tersambung paralel, bukan seri
 - [ ] TXD/RXD MAX3232↔PLC tersambung silang: pin 2 PLC (SD) ke sisi terima modul, pin 3 PLC (RD) dari sisi kirim modul, pin 9 PLC (SG) ke GND (bukan pin 5)

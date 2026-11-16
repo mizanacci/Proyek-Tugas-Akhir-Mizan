@@ -131,12 +131,13 @@ export class CommandProcessor {
           commandId,
           command,
           'RECEIVED',
-          'DRY-RUN: request validated; no MQTT control message was published.',
+          'DRY-RUN: request shape and active-operator authorization validated. The request is recorded in Firebase; no MQTT control message was published and no physical LBS operation was performed. LBS position remains UNKNOWN until independent feedback is received.',
           'dry_run',
         );
         return;
       }
 
+      // Physical readiness is mandatory only when real dispatch is explicitly enabled.
       const readiness = evaluateDeviceReadiness(
         this.getDeviceState(),
         this.clock(),
@@ -145,7 +146,7 @@ export class CommandProcessor {
       if (!readiness.ready) {
         await this.finish(
           resultRef, commandId, command, 'REJECTED',
-          'Dispatch blocked by gateway readiness check: ' + readiness.reason,
+          'Command blocked by gateway readiness check: ' + readiness.reason,
           'rejected',
         );
         return;

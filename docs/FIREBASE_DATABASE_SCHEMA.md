@@ -40,6 +40,9 @@ RECEIVED pada mode dry-run berarti gateway memvalidasi request tetapi tidak memp
     /telemetry/{deviceId}/latest
       device_id, timestamp, device_ts_ms, received_at
       v_sumber, v_beban, i_sumber, i_beban, kualitas
+      status_v_sumber, status_v_beban (NORMAL | AC_OFF | SUSPECT | WARNING | UNKNOWN)
+      status_i_sumber, status_i_beban (NORMAL | SUSPECT | UNKNOWN)
+      mode_operasi, mode_operasi_valid
       status_lru, status_com, status_lbs
 
 Gateway MVP menimpa satu record latest agar RTDB tidak tumbuh tanpa batas dari telemetry setiap 5 detik. Status LBS tetap UNKNOWN karena firmware saat ini belum mempublikasikan independent auxiliary-contact feedback. Gateway tidak boleh menyimpulkan status posisi dari command terakhir atau register request.

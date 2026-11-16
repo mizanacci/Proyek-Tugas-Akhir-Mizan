@@ -4,11 +4,13 @@
  */
 #ifndef CONFIG_H
 #define CONFIG_H
+#define ACS712_SUSPECT_CURRENT_A 1.8f
+#define ACS712_MIN_DETECT_CURRENT_A 0.05f
+#define ACS712_BOOT_IDLE_MAX_FUNDAMENTAL_MV 12.0f
+#define ACS712_IDLE_CALIBRATION_FRAMES 3
+#define ACS712_FUNDAMENTAL_HZ 50.0f
+#define ACS712_CALIBRATION_VERIFIED 0
 #include <Arduino.h>
-
-#define PIN_I2C_SDA       8
-#define PIN_I2C_SCL       9
-#define ADS1115_I2C_ADDR  0x48
 
 #define PIN_MODBUS_RX2  18
 #define PIN_MODBUS_TX2  17
@@ -26,43 +28,50 @@
 #define REG_KUALITAS_DATA  4
 #define REG_LRUFAIL        5
 #define REG_CMD_REMOTE     6
+#define REG_MODE_OPERASI_PLC 7
+#define MODE_OPERASI_UNKNOWN 0U
+#define MODE_OPERASI_STANDBY 1U
+#define MODE_OPERASI_RUN 2U
+#define MODE_OPERASI_INVALID 3U
+#define MODE_OPERASI_PLC_TIMEOUT_MS 5000UL
 
 #define SKALA_TEGANGAN   100.0f
 #define SKALA_ARUS       1000.0f
 
-// Mode uji sensor DC DINONAKTIFKAN.
-// Sistem utama menggunakan ZMPT101B AC pada A0/A1.
-// #define MODE_UJI_SENSOR_DC_SUMBER
-#define RASIO_PEMBAGI_SENSOR_DC  5.0f
-// #define MODE_DIAG_UART
-// #define MODE_DEBUG_SENSOR
-
-// Koefisien ZMPT101B adalah placeholder sampai kalibrasi final.
-#define ZMPT_SUMBER_GAIN    0.1f
-#define ZMPT_SUMBER_OFFSET  0.0f
-#define ZMPT_BEBAN_GAIN     0.1f
-#define ZMPT_BEBAN_OFFSET   0.0f
-
-// ACS712-20A nominal: 100 mV/A.
-// RMS firmware menghilangkan DC bias secara otomatis dari setiap batch sampel,
-// sehingga tidak lagi mengasumsikan titik tengah = ADC/2.
-#define ACS712_MV_PER_AMP   100.0f
-// Saat beban benar-benar tidak terpasang, angka sekitar 1.5 A pada sensor ACS712
-// umumnya merupakan noise. Gunakan ambang 3 A agar arus nol tetap 0 A.
-#define BATAS_NOISE_ARUS_A  3.0f
 #define BATAS_TEGANGAN_OFF  20.0f
 
-#define JUMLAH_SAMPEL_RMS   50
-#define INTERVAL_ADC_US     2000
+#define JUMLAH_SAMPEL_RMS 200
+#define INTERVAL_ADC_US 500
 #define TARGET_SIKLUS_MS    1000
 #define INTERVAL_PUBLISH_SENSOR_MS 5000
 
-#define WIFI_SSID       "ISI_NILAI_DI_SINI"
-#define WIFI_PASSWORD   "ISI_NILAI_DI_SINI"
-#define MQTT_HOST       "ISI_NILAI_DI_SINI"
+#define PIN_ADC_ZMPT_SUMBER 4
+#define PIN_ADC_ZMPT_BEBAN 5
+#define PIN_ADC_ACS_SUMBER 6
+#define PIN_ADC_ACS_BEBAN 7
+
+#define SENSOR_ADC_MIN_VALID_MV 100U
+#define SENSOR_ADC_MAX_VALID_MV 3000U
+#define SENSOR_BASELINE_TOLERANCE_MV 250.0f
+#define MODE_DIAGNOSTIK_ARUS_NOL 0
+#define SENSOR_ZERO_RMS_THRESHOLD_MV 5.0f
+
+#define ZMPT_SUMBER_BASELINE_MV 1650.0f
+#define ZMPT_BEBAN_BASELINE_MV 1650.0f
+#define ACS712_SUMBER_BASELINE_MV 2300.0f
+#define ACS712_BEBAN_BASELINE_MV 2300.0f
+
+#define ZMPT_SUMBER_VOLTS_PER_MV_RMS 0.52945f
+#define ZMPT_BEBAN_VOLTS_PER_MV_RMS 0.52028f
+#define ACS712_SUMBER_AMPS_PER_MV_RMS (1.0f / 71.6f)
+#define ACS712_BEBAN_AMPS_PER_MV_RMS (1.0f / 73.7f)
+
+#define WIFI_SSID       "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
+#define MQTT_HOST       "YOUR_HIVEMQ_HOST"
 #define MQTT_PORT       8883
-#define MQTT_USERNAME   "ISI_NILAI_DI_SINI"
-#define MQTT_PASSWORD   "ISI_NILAI_DI_SINI"
+#define MQTT_USERNAME   "YOUR_MQTT_USERNAME"
+#define MQTT_PASSWORD   "YOUR_MQTT_PASSWORD"
 #define MQTT_CLIENT_ID  "esp32-scada-mizan-01"
 
 #define TOPIC_DATA_SENSOR   "scada/mizan/data/sensor"

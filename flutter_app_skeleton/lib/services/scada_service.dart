@@ -101,10 +101,10 @@ class ScadaService {
 
   final CurrentProfileLoader _loadCurrentProfile;
   final ScadaDatabase _database;
-
   ScadaService({
     required CurrentProfileLoader loadCurrentProfile,
     ScadaDatabase? database,
+    int Function()? clock,
   })  : _loadCurrentProfile = loadCurrentProfile,
         _database = database ?? FirebaseScadaDatabase();
 
@@ -131,7 +131,7 @@ class ScadaService {
     if (deviceId != lbsTarget) {
       throw const ScadaServiceException('Target telemetry tidak dikenal.');
     }
-    return _authorizedRead(_database.watchTelemetry(deviceId)).map(
+    return _authorizedRead(() => _database.watchTelemetry(deviceId)).map(
       (value) =>
           value == null ? null : ScadaTelemetry.fromValue(deviceId, value),
     );
@@ -141,14 +141,14 @@ class ScadaService {
     if (commandId.isEmpty) {
       throw const ScadaServiceException('Command ID tidak valid.');
     }
-    return _authorizedRead(_database.watchCommandResult(commandId)).map(
+    return _authorizedRead(() => _database.watchCommandResult(commandId)).map(
       (value) =>
           value == null ? null : ScadaCommandResult.fromValue(commandId, value),
     );
   }
 
   Stream<List<ScadaCommand>> watchCommands() {
-    return _authorizedRead(_database.watchCommands()).map((value) {
+    return _authorizedRead(() => _database.watchCommands()).map((value) {
       if (value == null) return const <ScadaCommand>[];
       if (value is! Map) {
         throw const FormatException('Commands node must be an object.');
@@ -165,16 +165,64 @@ class ScadaService {
     });
   }
 
-  Stream<Object?> watchActivity() => _authorizedRead(_database.watchActivity());
+  Stream<Object?> watchActivity() =>
+      _authorizedRead(() => _database.watchActivity());
 
-  Stream<Object?> _authorizedRead(Stream<Object?> source) async* {
-    final profile = await _loadCurrentProfile();
-    if (profile == null || !profile.isActive) {
-      throw const ScadaServiceException(
-        'Profil aktif diperlukan untuk membaca data.',
-      );
-    }
-    yield* source;
+  Stream<Object?> _authorizedRead(
+    Stream<Object?> Function() sourceFactory,
+  ) {
+    return Stream<Object?>.multi((controller) {
+      StreamSubscription<Object?>? sourceSubscription;
+      var cancelled = false;
+
+      controller.onCancel = () async {
+        cancelled = true;
+        await sourceSubscription?.cancel();
+      };
+
+      Future<void> start() async {
+        try {
+          final profile = await _loadCurrentProfile();
+
+          if (cancelled) return;
+
+          if (profile == null || !profile.isActive) {
+            controller.addError(
+              const ScadaServiceException(
+                'Profil aktif diperlukan untuk membaca data.',
+              ),
+            );
+            await controller.close();
+            return;
+          }
+
+          sourceSubscription = sourceFactory().listen(
+            (value) {
+              if (!cancelled) {
+                controller.add(value);
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!cancelled) {
+                controller.addError(error, stackTrace);
+              }
+            },
+            onDone: () {
+              if (!cancelled) {
+                unawaited(controller.close());
+              }
+            },
+          );
+        } catch (error, stackTrace) {
+          if (!cancelled) {
+            controller.addError(error, stackTrace);
+            await controller.close();
+          }
+        }
+      }
+
+      unawaited(start());
+    }, isBroadcast: true);
   }
 
   @visibleForTesting

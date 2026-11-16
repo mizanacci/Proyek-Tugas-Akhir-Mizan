@@ -1,295 +1,415 @@
 /**
- * sensors.cpp — Implementasi pembacaan sensor & perhitungan RMS
- * Tugas Akhir SCADA Distribusi Listrik — Almar'u Zaim Mizan (04231006)
+ * sensors.cpp - Four-channel internal ADC acquisition for ESP32-S3.
+ * GPIO4/5: ZMPT101B source/load; GPIO6/7: ACS712 source/load.
+ * RMS is calculated after removing the DC bias of each sampling window.
  */
-
 #include "sensors.h"
 #include "config.h"
-#include <Wire.h>
-#include <Adafruit_ADS1X15.h>
 #include <math.h>
+#include <stdint.h>
+#include <limits.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
-static Adafruit_ADS1115 ads;
+namespace {
 
-#ifndef BATAS_NOISE_ARUS_A
-#define BATAS_NOISE_ARUS_A 3.0f
-#endif
-
-#ifndef BATAS_TEGANGAN_OFF
-#define BATAS_TEGANGAN_OFF 20.0f
-#endif
-
-static const int PIN_MAP[JUMLAH_SENSOR] = {
-  0, // ZMPT sumber -> A0
-  1, // ZMPT beban  -> A1
-  2, // ACS712 sumber -> A2
-  3  // ACS712 beban  -> A3
+const uint8_t PIN_MAP[JUMLAH_SENSOR] = {
+  PIN_ADC_ZMPT_SUMBER,
+  PIN_ADC_ZMPT_BEBAN,
+  PIN_ADC_ACS_SUMBER,
+  PIN_ADC_ACS_BEBAN
 };
 
-void sensorsInit() {
-  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  Wire.setClock(400000);
-  ads.setGain(GAIN_ONE);
-  ads.setDataRate(RATE_ADS1115_860SPS);
+const float BASELINE_MAP_MV[JUMLAH_SENSOR] = {
+  ZMPT_SUMBER_BASELINE_MV,
+  ZMPT_BEBAN_BASELINE_MV,
+  ACS712_SUMBER_BASELINE_MV,
+  ACS712_BEBAN_BASELINE_MV
+};
 
-  if (!ads.begin(ADS1115_I2C_ADDR)) {
-    Serial.println("[FATAL] ADS1115 tidak terdeteksi - cek wiring I2C.");
-    while (true) { delay(1000); }
-  }
+const char* const SENSOR_NAMES[JUMLAH_SENSOR] = {
+  "ZMPT_SUMBER", "ZMPT_BEBAN", "ACS_SUMBER", "ACS_BEBAN"
+};
+
+struct RmsWindow {
+  float meanMv = 0.0f;
+  float rmsAcMv = 0.0f;
+  float fundamentalRmsMv = 0.0f;
+  float sampleRateHz = 0.0f;
+  uint16_t minMv = UINT16_MAX;
+  uint16_t maxMv = 0;
+  bool rangeValid = false;
+  bool baselineValid = false;
+};
+
+bool adcInitialized = false;
+
+float idleFundamentalNoiseRmsMv[2] = {0.0f, 0.0f};
+bool idleNoiseCalibrationValid[2] = {false, false};
+
+struct VoltageStatusTracker {
+  uint32_t outsideSinceMs = 0;
+  bool timing = false;
+};
+
+VoltageStatusTracker warningSource;
+VoltageStatusTracker warningLoad;
+
+bool idValid(SensorId id) {
+  return static_cast<uint8_t>(id) < JUMLAH_SENSOR;
 }
 
-int readRawSensor(SensorId id) {
-  return (int)ads.readADC_SingleEnded(PIN_MAP[id]);
+bool coefficientValid(float coefficient) {
+  return isfinite(coefficient) && coefficient > 0.0f;
 }
 
-/*
- * RMS AC yang benar:
- *
- * 1. Ambil N sampel.
- * 2. Hitung rata-rata (DC bias) dari batch tersebut.
- * 3. Kurangi setiap sampel dengan rata-rata.
- * 4. Hitung RMS dari komponen AC.
- *
- * Dengan cara ini kita tidak lagi mengasumsikan zero point = ADC/2.
- * Ini penting karena pengukuran aktual Anda menunjukkan:
- *   ZMPT tanpa AC  ~= 1.5 V
- *   ACS712 0 A    ~= 0.9 V
- *
- * Estimasi offset per batch juga lebih baik daripada hard-code karena
- * offset sensor dapat berubah akibat suhu dan tegangan suplai.
- */
-static float hitungRMSDenganDc(
-    SensorId id,
-    float* rataRataDc,
-    int* nilaiMinimum,
-    int* nilaiMaksimum
-) {
-    float sampel[JUMLAH_SAMPEL_RMS];
-    double jumlah = 0.0;
-    int minimum = INT_MAX;
-    int maksimum = INT_MIN;
-
-    // Ambil seluruh sampel dan hitung rata-rata DC/bias.
-    for (int i = 0; i < JUMLAH_SAMPEL_RMS; i++) {
-        const int raw = readRawSensor(id);
-        sampel[i] = (float)raw;
-        minimum = min(minimum, raw);
-        maksimum = max(maksimum, raw);
-        jumlah += sampel[i];
-    }
-
-    const float rata_rata = (float)(jumlah / JUMLAH_SAMPEL_RMS);
-    if (rataRataDc != nullptr) {
-      *rataRataDc = rata_rata;
-    }
-    if (nilaiMinimum != nullptr) {
-      *nilaiMinimum = minimum;
-    }
-    if (nilaiMaksimum != nullptr) {
-      *nilaiMaksimum = maksimum;
-    }
-
-    // Hilangkan komponen DC/bias, kemudian hitung RMS komponen AC.
-    double jumlah_kuadrat_ac = 0.0;
-
-    for (int i = 0; i < JUMLAH_SAMPEL_RMS; i++) {
-        const float ac = sampel[i] - rata_rata;
-        jumlah_kuadrat_ac += (double)ac * (double)ac;
-    }
-
-    return sqrt(jumlah_kuadrat_ac / JUMLAH_SAMPEL_RMS);
-}
-
-float hitungRMS(SensorId id) {
-    return hitungRMSDenganDc(id, nullptr, nullptr, nullptr);
-}
-
-#define RMS_ADC_MIN_WAJAR (ADC_MAX_VALUE * 0.0001f)
-#define RMS_ADC_MAX_WAJAR (ADC_MAX_VALUE * 0.98f)
-
-static bool nilaiWajar(float rms_adc_mentah) {
-  return (rms_adc_mentah >= RMS_ADC_MIN_WAJAR) &&
-         (rms_adc_mentah <= RMS_ADC_MAX_WAJAR);
-}
-
-#ifdef MODE_UJI_SENSOR_DC_SUMBER
-static float bacaRataRataSensorDCSumber() {
-  const int jumlah_sampel_dc = 10;
-  long total_sampel = 0;
-
-  for (int i = 0; i < jumlah_sampel_dc; i++) {
-    total_sampel += readRawSensor(SENSOR_ZMPT_SUMBER);
-  }
-
-  return (float)total_sampel / jumlah_sampel_dc;
-}
-#endif
-
-// Filter tegangan untuk mengurangi fluktuasi antar-batch RMS.
-// Alpha kecil = lebih stabil tetapi respons perubahan tegangan lebih lambat.
-static float filterTegangan(float nilaiBaru, float &nilaiFilter, bool &sudahAdaData) {
-  const float ALPHA = 0.20f;
-
-  // Jangan biarkan sisa nilai tegangan AC tetap turun perlahan setelah sumber
-  // diputus. Kondisi tanpa AC harus dipublikasikan sebagai tepat 0 V.
-  if (nilaiBaru <= 0.0f) {
-    nilaiFilter = 0.0f;
-    sudahAdaData = true;
+float fundamentalRms50Hz(const uint16_t* samples,
+                         uint16_t count,
+                         float meanMv,
+                         float sampleRateHz) {
+  if (samples == nullptr || count < 8 ||
+      !isfinite(sampleRateHz) || sampleRateHz <= (ACS712_FUNDAMENTAL_HZ * 2.0f)) {
     return 0.0f;
   }
 
-  if (!sudahAdaData) {
-    nilaiFilter = nilaiBaru;
-    sudahAdaData = true;
-    return nilaiFilter;
+  constexpr float kPi = 3.14159265358979323846f;
+  const float omega = 2.0f * kPi * ACS712_FUNDAMENTAL_HZ / sampleRateHz;
+  const float coeff = 2.0f * cosf(omega);
+  const float windowStep = 2.0f * kPi / static_cast<float>(count - 1U);
+  const float windowSum = 0.5f * static_cast<float>(count - 1U);
+
+  float s1 = 0.0f;
+  float s2 = 0.0f;
+  for (uint16_t n = 0; n < count; ++n) {
+    const float hann = 0.5f * (1.0f - cosf(windowStep * static_cast<float>(n)));
+    const float x = (static_cast<float>(samples[n]) - meanMv) * hann;
+    const float s0 = x + coeff * s1 - s2;
+    s2 = s1;
+    s1 = s0;
   }
 
-  nilaiFilter = (ALPHA * nilaiBaru) +
-                ((1.0f - ALPHA) * nilaiFilter);
-
-  return nilaiFilter;
+  float magnitudeSquared = (s1 * s1) + (s2 * s2) - (coeff * s1 * s2);
+  if (magnitudeSquared < 0.0f) magnitudeSquared = 0.0f;
+  const float magnitude = sqrtf(magnitudeSquared);
+  return (sqrtf(2.0f) * magnitude) / windowSum;
 }
 
-HasilSensor bacaSemuaSensor() {
-  HasilSensor hasil;
-  hasil.bitmask_kualitas = 0;
+RmsWindow readWindow(SensorId id) {
+  RmsWindow result;
+  if (!adcInitialized || !idValid(id)) return result;
 
-  static float tegangan_sumber_filter = 0.0f;
-  static float tegangan_beban_filter = 0.0f;
-  static bool sumber_sudah_ada_data = false;
-  static bool beban_sudah_ada_data = false;
+  uint16_t samples[JUMLAH_SAMPEL_RMS];
+  double sum = 0.0;
+  const uint8_t pin = PIN_MAP[static_cast<uint8_t>(id)];
 
-  float adc_dc_sumber = 0.0f;
-  float rms_zmpt_sumber = 0.0f;
-  float dc_zmpt_sumber = 0.0f;
-  float dc_zmpt_beban = 0.0f;
-  float dc_acs_sumber = 0.0f;
-  float dc_acs_beban = 0.0f;
-  int min_zmpt_sumber = 0;
-  int max_zmpt_sumber = 0;
-  int min_zmpt_beban = 0;
-  int max_zmpt_beban = 0;
-  int min_acs_sumber = 0;
-  int max_acs_sumber = 0;
-  int min_acs_beban = 0;
-  int max_acs_beban = 0;
+  (void)analogReadMilliVolts(pin);
+  delayMicroseconds(50);
+
+  uint32_t firstSampleUs = 0;
+  uint32_t lastSampleUs = 0;
+  for (uint16_t i = 0; i < JUMLAH_SAMPEL_RMS; ++i) {
+    const uint32_t sampleTimeUs = micros();
+    if (i == 0U) firstSampleUs = sampleTimeUs;
+    lastSampleUs = sampleTimeUs;
+
+    const uint32_t measured = analogReadMilliVolts(pin);
+    const uint16_t sample = static_cast<uint16_t>(
+        measured > UINT16_MAX ? UINT16_MAX : measured);
+    samples[i] = sample;
+
+    if (sample < result.minMv) result.minMv = sample;
+    if (sample > result.maxMv) result.maxMv = sample;
+    sum += static_cast<double>(sample);
+
+    if (i + 1U < JUMLAH_SAMPEL_RMS) {
+      delayMicroseconds(INTERVAL_ADC_US);
+      if ((i & 0x0FU) == 0x0FU) taskYIELD();
+    }
+  }
+
+  result.meanMv = static_cast<float>(sum / JUMLAH_SAMPEL_RMS);
+  double sumSquares = 0.0;
+  for (uint16_t i = 0; i < JUMLAH_SAMPEL_RMS; ++i) {
+    const double ac = static_cast<double>(samples[i]) - result.meanMv;
+    sumSquares += ac * ac;
+  }
+  result.rmsAcMv = static_cast<float>(sqrt(sumSquares / JUMLAH_SAMPEL_RMS));
+
+  const uint32_t elapsedUs = lastSampleUs - firstSampleUs;
+  result.sampleRateHz = elapsedUs > 0U
+      ? (static_cast<float>(JUMLAH_SAMPEL_RMS - 1U) * 1000000.0f /
+         static_cast<float>(elapsedUs))
+      : 0.0f;
+  if (id == SENSOR_ACS712_SUMBER || id == SENSOR_ACS712_BEBAN) {
+    result.fundamentalRmsMv = fundamentalRms50Hz(
+        samples, JUMLAH_SAMPEL_RMS, result.meanMv, result.sampleRateHz);
+  }
+
+  result.rangeValid =
+      result.minMv >= SENSOR_ADC_MIN_VALID_MV &&
+      result.maxMv <= SENSOR_ADC_MAX_VALID_MV;
+  result.baselineValid =
+      fabsf(result.meanMv - BASELINE_MAP_MV[static_cast<uint8_t>(id)]) <=
+      SENSOR_BASELINE_TOLERANCE_MV;
+  return result;
+}
+
+float voltageFromSensorRms(float rmsSensorMv, float voltsPerMv) {
+  if (!coefficientValid(voltsPerMv) || !isfinite(rmsSensorMv) ||
+      rmsSensorMv <= SENSOR_ZERO_RMS_THRESHOLD_MV) {
+    return 0.0f;
+  }
+
+  const float voltage = rmsSensorMv * voltsPerMv;
+  if (!isfinite(voltage) || voltage <= BATAS_TEGANGAN_OFF) return 0.0f;
+  return voltage;
+}
+
+float noiseCorrectedFundamentalRms(float measuredRmsMv, float idleNoiseRmsMv) {
+  if (!isfinite(measuredRmsMv) || !isfinite(idleNoiseRmsMv) ||
+      measuredRmsMv <= 0.0f || idleNoiseRmsMv < 0.0f) {
+    return 0.0f;
+  }
+  const float netPower = (measuredRmsMv * measuredRmsMv) -
+                         (idleNoiseRmsMv * idleNoiseRmsMv);
+  return netPower > 0.0f ? sqrtf(netPower) : 0.0f;
+}
+float currentFromSensorRms(float rmsSensorMv, float ampsPerMv) {
+  if (!coefficientValid(ampsPerMv) || !isfinite(rmsSensorMv) ||
+      rmsSensorMv <= SENSOR_ZERO_RMS_THRESHOLD_MV) {
+    return 0.0f;
+  }
+
+  const float current = rmsSensorMv * ampsPerMv;
+  if (!isfinite(current) || current < 0.0f) return 0.0f;
+  return current;
+}
+
+uint8_t voltageStatus(float voltage, VoltageStatusTracker& tracker) {
+  const uint32_t now = millis();
+
+  if (!isfinite(voltage) || voltage <= BATAS_TEGANGAN_OFF) {
+    tracker.timing = false;
+    tracker.outsideSinceMs = 0;
+    return STATUS_V_AC_OFF;
+  }
+
+  // User-defined normal operating range: inclusive 200..230 VAC.
+  if (voltage >= 200.0f && voltage <= 230.0f) {
+    tracker.timing = false;
+    tracker.outsideSinceMs = 0;
+    return STATUS_V_NORMAL;
+  }
+
+  // Outside the configured range: suspect immediately, warning after 15 s.
+  if (!tracker.timing) {
+    tracker.timing = true;
+    tracker.outsideSinceMs = now;
+    return STATUS_V_SUSPECT;
+  }
+
+  if (static_cast<uint32_t>(now - tracker.outsideSinceMs) >= 15000UL) {
+    return STATUS_V_WARNING;
+  }
+
+  return STATUS_V_SUSPECT;
+}
+
+void calibrateAcsIdleNoise() {
+  const SensorId channels[2] = {SENSOR_ACS712_SUMBER, SENSOR_ACS712_BEBAN};
+  const char* labels[2] = {"ACS_SUMBER", "ACS_BEBAN"};
+
+  Serial.println("[ACS-ZERO] Boot noise calibration: BOTH primary paths must carry ZERO current.");
+  for (uint8_t channel = 0; channel < 2U; ++channel) {
+    long double noisePowerSum = 0.0L;
+    bool valid = true;
+
+    for (uint8_t frame = 0; frame < ACS712_IDLE_CALIBRATION_FRAMES; ++frame) {
+      const RmsWindow sample = readWindow(channels[channel]);
+      noisePowerSum += static_cast<long double>(sample.fundamentalRmsMv) *
+                       static_cast<long double>(sample.fundamentalRmsMv);
+
+      if (!sample.rangeValid || !sample.baselineValid ||
+          !isfinite(sample.fundamentalRmsMv) ||
+          sample.fundamentalRmsMv > ACS712_BOOT_IDLE_MAX_FUNDAMENTAL_MV) {
+        valid = false;
+      }
+    }
+
+    const float noiseRms = sqrtf(static_cast<float>(
+        noisePowerSum / static_cast<long double>(ACS712_IDLE_CALIBRATION_FRAMES)));
+    idleFundamentalNoiseRmsMv[channel] = noiseRms;
+    idleNoiseCalibrationValid[channel] = valid && isfinite(noiseRms);
+
+    Serial.printf("[ACS-ZERO] %s idle50=%.3f mV maxBoot=%.1f mV calibration=%s\n",
+                  labels[channel], noiseRms,
+                  ACS712_BOOT_IDLE_MAX_FUNDAMENTAL_MV,
+                  idleNoiseCalibrationValid[channel] ? "VALID" : "INVALID");
+  }
+}
+} // namespace
+
+bool sensorsInit() {
+  adcInitialized = false;
+  analogReadResolution(12);
+
+  for (uint8_t i = 0; i < JUMLAH_SENSOR; ++i) {
+    pinMode(PIN_MAP[i], INPUT);
+    analogSetPinAttenuation(PIN_MAP[i], ADC_11db);
+  }
+
+  delay(30);
+  Serial.println("[ADC] ESP32-S3 internal ADC1 initialized; ADS1115/I2C disabled.");
+  Serial.printf("[ADC] 12-bit, ADC_11db, samples=%u, interval=%u us\n",
+                static_cast<unsigned>(JUMLAH_SAMPEL_RMS),
+                static_cast<unsigned>(INTERVAL_ADC_US));
+  Serial.printf("[ADC] Pins: ZMPT source=GPIO%u, ZMPT load=GPIO%u, ACS source=GPIO%u, ACS load=GPIO%u\n",
+                PIN_MAP[0], PIN_MAP[1], PIN_MAP[2], PIN_MAP[3]);
+
+  adcInitialized = true;
+
+  for (uint8_t channel = 0; channel < JUMLAH_SENSOR; ++channel) {
+    uint32_t total = 0;
+    for (uint8_t i = 0; i < 16; ++i) {
+      total += analogReadMilliVolts(PIN_MAP[channel]);
+      delayMicroseconds(200);
+    }
+    const float startupMean = static_cast<float>(total) / 16.0f;
+    Serial.printf("[ADC-BOOT] %s GPIO%u mean=%.1f mV expected=%.1f mV\n",
+                  SENSOR_NAMES[channel], PIN_MAP[channel],
+                  startupMean, BASELINE_MAP_MV[channel]);
+  }
+
+  Serial.printf("[ADC] ZMPT calibration: source=%.5f V/mV, load=%.5f V/mV\n",
+                static_cast<double>(ZMPT_SUMBER_VOLTS_PER_MV_RMS),
+                static_cast<double>(ZMPT_BEBAN_VOLTS_PER_MV_RMS));
+Serial.printf("[ADC] ACS 50Hz sensitivities: source=71.6 mV/A, load=73.7 mV/A (provisional 2.00 A reference).\n");
+  Serial.println("[ADC] No-load noise calibration begins; ensure no primary current is flowing.");
+  calibrateAcsIdleNoise();
+  return true;
+}
+
+bool sensorsService() {
+  // No I2C bus or ADS1115 recovery is required for the internal ADC.
+  return adcInitialized;
+}
+
+bool sensorsReady() {
+  return adcInitialized;
+}
+
+int readRawSensor(SensorId id) {
+  if (!adcInitialized || !idValid(id)) return -1;
+  return static_cast<int>(analogReadMilliVolts(PIN_MAP[static_cast<uint8_t>(id)]));
+}
+
+float hitungRMS(SensorId id) {
+  const RmsWindow window = readWindow(id);
+  return window.rmsAcMv;
+}
+
+bool bacaSemuaSensor(HasilSensor& hasilOut) {
+  if (!adcInitialized) return false;
+
+  HasilSensor hasil{};
+  const RmsWindow windows[JUMLAH_SENSOR] = {
+    readWindow(SENSOR_ZMPT_SUMBER),
+    readWindow(SENSOR_ZMPT_BEBAN),
+    readWindow(SENSOR_ACS712_SUMBER),
+    readWindow(SENSOR_ACS712_BEBAN)
+  };
+
+  // Voltage bits retain the existing range/baseline/coefficient validity rules.
+  for (uint8_t i = 0; i < 2U; ++i) {
+    const float coefficient = (i == 0U)
+        ? ZMPT_SUMBER_VOLTS_PER_MV_RMS
+        : ZMPT_BEBAN_VOLTS_PER_MV_RMS;
+    if (!windows[i].rangeValid || !windows[i].baselineValid ||
+        !coefficientValid(coefficient) || !isfinite(windows[i].rmsAcMv)) {
+      hasil.bitmask_kualitas |= static_cast<uint8_t>(1U << i);
+    }
+  }
+
+  hasil.tegangan_sumber = voltageFromSensorRms(
+      windows[SENSOR_ZMPT_SUMBER].rmsAcMv,
+      ZMPT_SUMBER_VOLTS_PER_MV_RMS);
+  hasil.tegangan_beban = voltageFromSensorRms(
+      windows[SENSOR_ZMPT_BEBAN].rmsAcMv,
+      ZMPT_BEBAN_VOLTS_PER_MV_RMS);
+
+  const RmsWindow& sourceWindow = windows[SENSOR_ACS712_SUMBER];
+  const RmsWindow& loadWindow = windows[SENSOR_ACS712_BEBAN];
+  const bool sourceCurrentValid = sourceWindow.rangeValid && sourceWindow.baselineValid &&
+      idleNoiseCalibrationValid[0] && isfinite(sourceWindow.fundamentalRmsMv) &&
+      coefficientValid(ACS712_SUMBER_AMPS_PER_MV_RMS);
+  const bool loadCurrentValid = loadWindow.rangeValid && loadWindow.baselineValid &&
+      idleNoiseCalibrationValid[1] && isfinite(loadWindow.fundamentalRmsMv) &&
+      coefficientValid(ACS712_BEBAN_AMPS_PER_MV_RMS);
+
+  const float sourceNetRmsMv = sourceCurrentValid
+      ? noiseCorrectedFundamentalRms(sourceWindow.fundamentalRmsMv,
+                                     idleFundamentalNoiseRmsMv[0])
+      : 0.0f;
+  const float loadNetRmsMv = loadCurrentValid
+      ? noiseCorrectedFundamentalRms(loadWindow.fundamentalRmsMv,
+                                     idleFundamentalNoiseRmsMv[1])
+      : 0.0f;
+
+  hasil.arus_sumber = sourceCurrentValid
+      ? currentFromSensorRms(sourceNetRmsMv, ACS712_SUMBER_AMPS_PER_MV_RMS)
+      : 0.0f;
+  hasil.arus_beban = loadCurrentValid
+      ? currentFromSensorRms(loadNetRmsMv, ACS712_BEBAN_AMPS_PER_MV_RMS)
+      : 0.0f;
+
+  // Suppress only the measured noise floor. 0 A is a valid standby state when
+  // ADC range, DC baseline, and boot idle-noise calibration are all valid.
+  if (sourceCurrentValid && hasil.arus_sumber < ACS712_MIN_DETECT_CURRENT_A) {
+    hasil.arus_sumber = 0.0f;
+  }
+  if (loadCurrentValid && hasil.arus_beban < ACS712_MIN_DETECT_CURRENT_A) {
+    hasil.arus_beban = 0.0f;
+  }
+
+  const bool sourceNoLoad = sourceCurrentValid &&
+      hasil.arus_sumber < ACS712_MIN_DETECT_CURRENT_A;
+  const bool loadNoLoad = loadCurrentValid &&
+      hasil.arus_beban < ACS712_MIN_DETECT_CURRENT_A;
+
+  // User-defined current status: >1.80 A = SUSPECT; <=1.80 A = NORMAL.
+  // A channel with invalid ADC/baseline/idle calibration remains SUSPECT regardless of its numeric placeholder.
+  hasil.suspect_arus_sumber = !sourceCurrentValid ||
+      hasil.arus_sumber > ACS712_SUSPECT_CURRENT_A;
+  hasil.suspect_arus_beban = !loadCurrentValid ||
+      hasil.arus_beban > ACS712_SUSPECT_CURRENT_A;
+
+  if (hasil.suspect_arus_sumber) hasil.bitmask_kualitas |= (1U << SENSOR_ACS712_SUMBER);
+  if (hasil.suspect_arus_beban) hasil.bitmask_kualitas |= (1U << SENSOR_ACS712_BEBAN);
+
+  hasil.status_tegangan_sumber = voltageStatus(hasil.tegangan_sumber, warningSource);
+  hasil.status_tegangan_beban = voltageStatus(hasil.tegangan_beban, warningLoad);
+  hasil.warning_tegangan_sumber = (hasil.status_tegangan_sumber == STATUS_V_WARNING);
+  hasil.warning_tegangan_beban = (hasil.status_tegangan_beban == STATUS_V_WARNING);
+
 #ifdef MODE_DEBUG_SENSOR
-  rms_zmpt_sumber = hitungRMSDenganDc(
-      SENSOR_ZMPT_SUMBER, &dc_zmpt_sumber,
-      &min_zmpt_sumber, &max_zmpt_sumber);
-  float rms_zmpt_beban = hitungRMSDenganDc(
-      SENSOR_ZMPT_BEBAN, &dc_zmpt_beban,
-      &min_zmpt_beban, &max_zmpt_beban);
-  float rms_acs_sumber = hitungRMSDenganDc(
-      SENSOR_ACS712_SUMBER, &dc_acs_sumber,
-      &min_acs_sumber, &max_acs_sumber);
-  float rms_acs_beban = hitungRMSDenganDc(
-      SENSOR_ACS712_BEBAN, &dc_acs_beban,
-      &min_acs_beban, &max_acs_beban);
-#else
-  #ifdef MODE_UJI_SENSOR_DC_SUMBER
-  adc_dc_sumber = bacaRataRataSensorDCSumber();
-  #else
-  rms_zmpt_sumber = hitungRMS(SENSOR_ZMPT_SUMBER);
-  #endif
-  float rms_zmpt_beban = hitungRMS(SENSOR_ZMPT_BEBAN);
-  float rms_acs_sumber = hitungRMS(SENSOR_ACS712_SUMBER);
-  float rms_acs_beban  = hitungRMS(SENSOR_ACS712_BEBAN);
-#endif
-
-#ifndef MODE_UJI_SENSOR_DC_SUMBER
-  if (!nilaiWajar(rms_zmpt_sumber)) hasil.bitmask_kualitas |= (1 << 0);
-#endif
-  if (!nilaiWajar(rms_zmpt_beban))  hasil.bitmask_kualitas |= (1 << 1);
-  if (!nilaiWajar(rms_acs_sumber))  hasil.bitmask_kualitas |= (1 << 2);
-  if (!nilaiWajar(rms_acs_beban))   hasil.bitmask_kualitas |= (1 << 3);
-
-#ifdef MODE_UJI_SENSOR_DC_SUMBER
-  hasil.tegangan_sumber =
-      (adc_dc_sumber / ADC_MAX_VALUE) * 4.096f * RASIO_PEMBAGI_SENSOR_DC;
-#else
-  float tegangan_sumber_baru =
-    ZMPT_SUMBER_GAIN * rms_zmpt_sumber + ZMPT_SUMBER_OFFSET;
-
-  float tegangan_beban_baru =
-    ZMPT_BEBAN_GAIN * rms_zmpt_beban + ZMPT_BEBAN_OFFSET;
-
-  // Deadband untuk menghilangkan residual/noise saat tidak ada AC.
-  if (tegangan_sumber_baru <= BATAS_TEGANGAN_OFF) {
-    tegangan_sumber_baru = 0.0f;
+  for (uint8_t i = 0; i < JUMLAH_SENSOR; ++i) {
+    Serial.printf("[ADC] %s GPIO%u DC=%.1f mV RMS_AC=%.2f mV FUND50=%.2f mV Fs=%.0f Hz MIN/MAX=%u/%u mV range=%s baseline=%s\n",
+                  SENSOR_NAMES[i], PIN_MAP[i], windows[i].meanMv,
+                  windows[i].rmsAcMv, windows[i].fundamentalRmsMv,
+                  windows[i].sampleRateHz, windows[i].minMv, windows[i].maxMv,
+                  windows[i].rangeValid ? "OK" : "SUSPECT",
+                  windows[i].baselineValid ? "OK" : "SUSPECT");
   }
-
-  if (tegangan_beban_baru <= BATAS_TEGANGAN_OFF) {
-    tegangan_beban_baru = 0.0f;
-  }
-
-  // Filtering untuk menstabilkan pembacaan tegangan.
-  hasil.tegangan_sumber =
-      filterTegangan(
-          tegangan_sumber_baru,
-          tegangan_sumber_filter,
-          sumber_sudah_ada_data
-      );
-
-  hasil.tegangan_beban =
-      filterTegangan(
-          tegangan_beban_baru,
-          tegangan_beban_filter,
-          beban_sudah_ada_data
-      );
+  Serial.printf("[ADC-ACS] source idle50=%.2f mV net50=%.2f mV status=%s | load idle50=%.2f mV net50=%.2f mV status=%s\n",
+                idleFundamentalNoiseRmsMv[0], sourceNetRmsMv,
+                hasil.suspect_arus_sumber ? "SUSPECT" : (sourceNoLoad ? "STANDBY" : "NORMAL"),
+                idleFundamentalNoiseRmsMv[1], loadNetRmsMv,
+                hasil.suspect_arus_beban ? "SUSPECT" : (loadNoLoad ? "STANDBY" : "NORMAL"));
+  Serial.printf("[ADC-RESULT] Vsrc=%.2f V Vload=%.2f V Isrc=%.3f A Iload=%.3f A quality=0x%02X\n",
+                hasil.tegangan_sumber, hasil.tegangan_beban,
+                hasil.arus_sumber, hasil.arus_beban, hasil.bitmask_kualitas);
 #endif
 
-  // ACS712: konversi RMS-ADC -> mV -> Ampere memakai sensitivitas datasheet.
-  // ACS712_MV_PER_AMP = 100.0 (varian 20A @5V) x (Vcc_terukur/5) x
-  // rasio_pembagi_bila_ada. Modul ACS712 bersifat ratiometric: titik nol =
-  // Vcc/2 dan sensitivitas proporsional terhadap Vcc; rentang suplai
-  // terjamin 4,5-5,5 V. Jangan ubah konstanta sebelum Vcc dan tegangan OUT
-  // saat 0 A diukur.
-  // Referensi 4096 mV mengikuti rentang penuh
-  // ADS1115 pada pengaturan GAIN_ONE (+/-4,096V, lihat sensorsInit()) —
-  // BUKAN 3,3V seperti asumsi ADC bawaan ESP32 sebelumnya. Bila suatu saat
-  // setGain() diubah ke pengaturan lain, angka 4096.0f ini WAJIB
-  // disesuaikan mengikuti rentang penuh gain yang baru, atau meleset.
-  // TITIK INI JUGA PERLU DIVERIFIKASI ULANG bila memakai kalibrasi regresi
-  // seperti ZMPT101B untuk akurasi lebih baik (opsional, di luar cakupan
-  // Panduan Kalibrasi ZMPT101B yang sudah dibuat).
-  const float referensi_mv = 4096.0f;
-  float mv_per_langkah = referensi_mv / ADC_MAX_VALUE;
-  float arus_sumber = (rms_acs_sumber * mv_per_langkah) / ACS712_MV_PER_AMP;
-  float arus_beban  = (rms_acs_beban  * mv_per_langkah) / ACS712_MV_PER_AMP;
-
-  hasil.arus_sumber = (arus_sumber <= BATAS_NOISE_ARUS_A) ? 0.0f : arus_sumber;
-  hasil.arus_beban  = (arus_beban  <= BATAS_NOISE_ARUS_A) ? 0.0f : arus_beban;
-
-#ifdef MODE_DEBUG_SENSOR
-  static unsigned int jumlahSiklusDebug = 0;
-  if (++jumlahSiklusDebug % 2 == 0) {
-    const float adcKeVolt = 4.096f / ADC_MAX_VALUE;
-    const float adcKeMv = 4096.0f / ADC_MAX_VALUE;
-    Serial.printf("[SENSOR] ZMPT_sumber raw=%d..%d dc=%.3fV rms=%.1fmV "
-                  "pre=%.2fV post=%.2fV\n",
-                  min_zmpt_sumber, max_zmpt_sumber,
-                  dc_zmpt_sumber * adcKeVolt, rms_zmpt_sumber * adcKeMv,
-                  ZMPT_SUMBER_GAIN * rms_zmpt_sumber + ZMPT_SUMBER_OFFSET,
-                  hasil.tegangan_sumber);
-    Serial.printf("[SENSOR] ZMPT_beban raw=%d..%d dc=%.3fV rms=%.1fmV "
-                  "pre=%.2fV post=%.2fV\n",
-                  min_zmpt_beban, max_zmpt_beban,
-                  dc_zmpt_beban * adcKeVolt, rms_zmpt_beban * adcKeMv,
-                  ZMPT_BEBAN_GAIN * rms_zmpt_beban + ZMPT_BEBAN_OFFSET,
-                  hasil.tegangan_beban);
-    Serial.printf("[SENSOR] ACS_sumber raw=%d..%d dc=%.3fV rms=%.1fmV "
-                  "-> %.2fA\n",
-                  min_acs_sumber, max_acs_sumber,
-                  dc_acs_sumber * adcKeVolt, rms_acs_sumber * adcKeMv,
-                  hasil.arus_sumber);
-    Serial.printf("[SENSOR] ACS_beban raw=%d..%d dc=%.3fV rms=%.1fmV "
-                  "-> %.2fA\n",
-                  min_acs_beban, max_acs_beban,
-                  dc_acs_beban * adcKeVolt, rms_acs_beban * adcKeMv,
-                  hasil.arus_beban);
-  }
-#endif
-
-  return hasil;
+  hasilOut = hasil;
+  return true;
 }

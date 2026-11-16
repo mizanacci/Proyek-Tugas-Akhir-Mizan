@@ -1,17 +1,18 @@
 import sys
 from exec_sim import *
-PATH=sys.argv[1] if len(sys.argv)>1 else 'SCADA_CP1E_Mizan.cxt'
+PATH=sys.argv[1] if len(sys.argv)>1 else 'SCADA_CP1E_Mizan_Modbus_Revision_V4_InternalADC.cxt'
 res=[]
 def check(n,c): res.append(c); print(('PASS ' if c else 'FAIL ')+n)
 def new(**kw): return mk(PATH,**kw)
 
-r=new(); p=r.plc
-check('S0 program dimuat: 41 rung', len(p.rungs)==41)
+r=new(); p=r.plc; r.esp.hreg7=99
+check('S0 program dimuat: 42 rung', len(p.rungs)==42)
 r.step(3)
 check('S1 power-on: Hot Line = LOCK dan koil OFF', p.bit('W0.00') and not p.coil())
-check('S1 ambang batas dimuat (D120..D123)', [p.word(f'D{x}') for x in (120,121,122,123)]==[19800,24200,2000,5000])
+check('S1 ambang batas dimuat (D120..D123)', [p.word(f'D{x}') for x in (120,121,122,123)]==[20000,23000,1800,5000])
 check('S1 data IREG tersalin D110..D115', [p.word(f'D{110+i}') for i in range(6)]==[22000,21900,1200,1100,0,0])
 check('S1 COMFail NORMAL saat komunikasi sehat', not p.bit('W1.01'))
+check('S1 heartbeat PLC menulis HREG 7 = UNKNOWN', r.esp.hreg7==0)
 
 # ---- Tabel 3.25: sembilan skenario ----
 def lock(r):   r.press('LOCK')
@@ -94,12 +95,14 @@ check('X7 perintah remote tetap tereksekusi dan di-acknowledge', r.plc.coil() an
 # kualitas & ambang
 r=fresh('LOCK'); r.esp.ireg[4]=0b0101; r.step(2)
 check('X8 bitmask kualitas IREG 4 -> W5.00 dan W5.02 = 1', r.plc.bit('W5.00') and r.plc.bit('W5.02') and not r.plc.bit('W5.01') and not r.plc.bit('W5.03'))
-r.esp.ireg[3]=1999; r.step(2); a=r.plc.bit('W3.05')
-r.esp.ireg[3]=2000; r.step(2); b=r.plc.bit('W3.05'); c=r.plc.word('D131')
-r.esp.ireg[3]=800; r.step(2)
-check('X9 Arus Gangguan: 1,999 A normal; 2,000 A gangguan; D131 mengikuti; kembali 0', (not a) and b and c==2000 and r.plc.word('D131')==0 and not r.plc.bit('W3.05'))
+for _ in range(3): r.step(2)
+r.esp.ireg[3]=1799; r.step(2); a=r.plc.bit('W3.05')
+r.esp.ireg[3]=1800; r.step(2); b=r.plc.bit('W3.05')
+r.esp.ireg[3]=1801; r.step(2); c=r.plc.bit('W3.05'); value=r.plc.word('D131')
+r.esp.ireg[3]=0; r.step(2)
+check('X9 Arus Gangguan: 1,799/1,800 A normal; 1,801 A gangguan; 0 A normal; D131 mengikuti', (not a) and (not b) and c and value==1801 and r.plc.word('D131')==0 and not r.plc.bit('W3.05') and r.plc.bit('W3.04'))
 r.esp.ireg[0]=19000; r.step(2); lo=r.plc.bit('W3.06'); r.esp.ireg[0]=25000; r.step(2); hi=r.plc.bit('W3.06'); r.esp.ireg[0]=22000; r.step(2)
-check('X10 tegangan sumber di luar 198-242 V -> V_ABNORMAL', lo and hi and not r.plc.bit('W3.06'))
+check('X10 tegangan sumber di luar 200-230 V -> V_ABNORMAL', lo and hi and not r.plc.bit('W3.06'))
 r=fresh('LOCK'); r.esp.ireg[1]=21900; r.step(4); a=r.plc.bit('W3.07')   # koil OFF tetapi beban bertegangan
 r.press('NC'); r.step(2.5); b=r.plc.bit('W3.07')                        # koil ON dan beban bertegangan
 r.esp.ireg[1]=0; r.step(3); c=r.plc.bit('W3.07')                        # koil ON tetapi beban 0 V
@@ -114,7 +117,7 @@ for act in ('init','unlock','lock','both'):
     ok&=(r.plc.bit('W0.01')==(not r.plc.bit('W0.00')))
 check('X12 HOT_UNLOCK (W0.01) selalu kebalikan HOT_LOCK (W0.00) pada semua kondisi', ok)
 r=fresh('LOCK'); vals={}
-for amp in (0,1,1999,2000,3500):
+for amp in (0,1,1799,1800,1801,3500):
     r.esp.ireg[3]=amp; r.step(2); vals[amp]=r.plc.bit('W3.04')
-check('X13 ARUS_NORMAL: 0 A tidak, 1 mA ya, 1,999 A ya, 2,000 A tidak, 3,5 A tidak', vals=={0:False,1:True,1999:True,2000:False,3500:False})
+check('X13 ARUS_NORMAL: 0 A, 1 mA, 1,799 A, 1,800 A normal; 1,801/3,5 A tidak', vals=={0:True,1:True,1799:True,1800:True,1801:False,3500:False})
 print('\nRINGKASAN:',sum(res),'/',len(res),'lulus  |  file:',PATH.split('/')[-1])

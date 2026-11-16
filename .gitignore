@@ -1,9 +1,33 @@
 # PlatformIO build artifacts
 .pio/
 
+# Local secrets and signing material
+.env
+**/.env
+**/secrets/
+**/service-account*.json
+**/firebase-admin*.json
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
+
 # Firmware credentials
 firmware_esp32/src/config.h
 node_modules
+**/node_modules/
 .firebase/
 firebase-debug.log
 database-debug.log
+
+# Python simulation artifacts
+**/__pycache__/
+*.py[cod]
+
+# Flutter and Android build artifacts
+**/.dart_tool/
+**/build/
+**/.gradle/
+*.apk
+*.aab

@@ -3,6 +3,15 @@
 **Tugas Akhir:** Perancangan Prototipe Sistem SCADA Distribusi Listrik Berbasis PLC OMRON yang Terintegrasi dengan Platform Monitoring IoT
 **Penyusun:** Almar'u Zaim Mizan (04231006) — Teknik Elektro, Institut Teknologi Kalimantan
 
+## Baseline Implementasi Aktif
+
+Firmware memakai ADC internal ESP32-S3: ZMPT101B sumber/beban pada GPIO4/5
+dan ACS712 sumber/beban pada GPIO6/7. Data mengalir melalui MQTT ke
+`backend/scada-gateway`, lalu Firebase Realtime Database, kemudian Flutter.
+Tegangan NORMAL adalah 200-230 V inklusif; arus >1.80 A adalah SUSPECT; arus
+0 A yang valid tetap NORMAL/standby. Gateway command dispatch tetap DRY-RUN;
+komunikasi PLC dan posisi fisik LBS belum dibuktikan dengan perangkat.
+
 ---
 
 ## 1. Struktur Folder Frontend (Flutter)
@@ -55,14 +64,14 @@ HiveMQ pada `mqtt_service.dart` harus sama dengan konfigurasi cluster.
 ## 2. Struktur Folder Backend Sisi IoT (Firmware)
 
 ```
-firmware/
-├── platformio.ini          # board esp32dev, lib_deps (ModbusRTU, PubSubClient, ArduinoJson)
+firmware_esp32/
+├── platformio.ini          # board esp32-s3-devkitc-1, lib_deps (ModbusRTU, PubSubClient, ArduinoJson)
 ├── .gitignore
 ├── README.md                # ringkasan desain, peta register, dua keputusan desain kunci
 └── src/
-    ├── config.h              # SUMBER KEBENARAN TUNGGAL: pin, peta register, kredensial, kalibrasi
+    ├── config.h.example      # template placeholder; config.h lokal berisi konfigurasi perangkat dan di-ignore
     ├── shared_state.h         # primitif FreeRTOS untuk komunikasi aman Core 0 <-> Core 1
-    ├── sensors.h/.cpp         # ADC + RMS, dibungkus readRawSensor() untuk migrasi ADS1115
+    ├── sensors.h/.cpp         # ADC internal ESP32-S3 + RMS pada GPIO4-GPIO7
     ├── modbus_slave.h/.cpp    # Modbus RTU slave + watchdog estimasi COMFail lokal
     ├── mqtt_handler.h/.cpp    # WiFi + MQTT (TLS, LWT) ke HiveMQ Cloud
     └── main.cpp               # setup()/loop(), pembuatan 2 task dual-core
@@ -72,9 +81,9 @@ Lihat `firmware/README.md` untuk peta register Modbus lengkap dan penjelasan dua
 
 Setup awal proyek firmware:
 1. Install ekstensi PlatformIO (VS Code) atau CLI `pip install platformio`
-2. Buka folder `firmware/` sebagai proyek PlatformIO
-3. Isi seluruh nilai `[DRAF]` di `src/config.h` (kredensial WiFi/MQTT, koefisien kalibrasi hasil dokumen 02, sertifikat CA di `mqtt_handler.cpp`)
-4. `pio run -t upload` untuk build + flash ke ESP32
+2. Buka folder `firmware_esp32/` sebagai proyek PlatformIO.
+3. Siapkan `src/config.h` lokal dari `src/config.h.example` dan isi placeholder credential secara lokal.
+4. Jalankan `pio run -e esp32s3devkitc1` untuk build saja. Jangan gunakan target upload saat audit/release ini.
 
 ---
 
@@ -98,7 +107,10 @@ Setup awal proyek firmware:
 │       ├── sumber: "mobile" | "mqtt"
 │       ├── v_sumber, v_beban: number  # hanya SCADA_UPDATE
 │       ├── i_sumber, i_beban: number  # hanya SCADA_UPDATE
-│       ├── kualitas: number           # bitmask kualitas sensor
+│       ├── kualitas: number           # bitmask kualitas empat kanal sensor
+│       ├── status_v_sumber, status_v_beban: NORMAL|AC_OFF|SUSPECT|WARNING|UNKNOWN
+│       ├── status_i_sumber, status_i_beban: NORMAL|SUSPECT|UNKNOWN
+│       ├── mode_operasi, mode_operasi_valid
 │       └── status_lru, status_com, status_lbs: string
 │
 └── settings/
@@ -115,9 +127,8 @@ Setup awal proyek firmware:
   otomatis setiap 10 detik selama pengguna login dan data sensor tersedia.
   Pencatatan tetap dilakukan walaupun COMFail bernilai FAIL; status tersebut
   disimpan sebagai bagian dari snapshot, bukan sebagai syarat penyimpanan.
-  `status_lbs` merepresentasikan perintah LBS terakhir dari aplikasi, bukan
-  konfirmasi eksekusi ladder logic PLC; konfirmasi aktual membutuhkan topic
-  status LBS terpisah dari firmware.
+  `status_lbs` tetap `UNKNOWN` sampai tersedia feedback auxiliary-contact
+  independen. Command request tidak membuktikan eksekusi atau posisi fisik.
 - `settings/threshold_alarm` dan `durasi_timeout` disediakan skemanya, tapi **layar pengaturan (Setting Threshold Alarm/Setting Durasi Timeout) belum dibuat** pada struktur Deliverable 5 ini — service `firebase_service.dart` sudah punya fungsi baca/tulisnya (`ambilThresholdAlarm`, `simpanThresholdAlarm`, dst.), tinggal dibuatkan layar UI-nya bila diperlukan untuk BAB 4.
 
 ---
@@ -126,12 +137,14 @@ Setup awal proyek firmware:
 
 | Topic | Payload | Dipakai Oleh |
 |---|---|---|
-| `scada/mizan/data/sensor` | `{v_sumber, v_beban, i_sumber, i_beban, kualitas, ts}` | ESP32 publish → Flutter subscribe |
-| `scada/mizan/status/lrufail` | `{status, source}` | Broker (LWT) + ESP32 publish → Flutter subscribe |
-| `scada/mizan/status/comfail` | `{status, source}` | ESP32 publish → Flutter subscribe |
-| `scada/mizan/cmd/relay` | `{command: "NO"\|"NC"}` | Flutter (Operator) publish → ESP32 subscribe |
+| `scada/mizan/data/sensor` | Nilai V/A, `kualitas`, status sensor, mode PLC, dan `ts` (uptime ms) | ESP32 publish → Gateway subscribe |
+| `scada/mizan/status/lrufail` | `{status, source}` | Broker (LWT) + ESP32 publish → Gateway subscribe |
+| `scada/mizan/status/comfail` | `{status, source}` | ESP32 publish → Gateway subscribe |
+| `scada/mizan/cmd/relay` | `{command: "NO"\|"NC"}` | Gateway DRY-RUN; tidak publish command kontrol |
 
-Struktur ini **identik** antara `config.h` (firmware), `mqtt_handler.cpp` (firmware), dan `mqtt_service.dart` (Flutter) — bila salah satu diubah saat implementasi, ketiganya harus diperbarui bersamaan agar tidak terjadi payload yang tidak terbaca di sisi lain.
+Gateway memetakan payload MQTT ke Firebase; Flutter membaca snapshot Firebase.
+`ts` adalah uptime perangkat, sedangkan `timestamp` dan `received_at` adalah
+epoch milliseconds yang dibuat Gateway.
 
 ---
 
@@ -155,4 +168,4 @@ Ditandai eksplisit agar tidak dianggap terlewat secara tidak sengaja:
 - Firebase Security Rules dan pembatasan akses topic MQTT per-role (lihat catatan keamanan Bagian 1)
 - Unit test / widget test Flutter maupun test firmware (di luar permintaan awal prompt ini)
 - Layout kondisional untuk tablet/layar besar (skeleton ini memakai layout dasar `GridView`/`ListView` yang responsif secukupnya, belum dioptimalkan untuk banyak ukuran layar)
-- Mekanisme migrasi kode saat benar-benar berpindah ke ESP32-S3 + ADS1115 (sudah disiapkan titik migrasinya di `sensors.cpp`, tapi implementasi aktual kode ADS1115 belum ditulis — menunggu iterasi berikutnya sesuai rencana pada prompt awal)
+- Pengujian fisik ESP32-PLC dan aktuator belum dilakukan; jangan menyimpulkan komunikasi atau posisi LBS dari simulasi software.

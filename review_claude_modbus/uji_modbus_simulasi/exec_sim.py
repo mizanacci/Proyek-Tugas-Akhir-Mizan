@@ -88,14 +88,21 @@ class PLC:
     def coil(s): return s.bit('100.00')
 
 class ESP32:
-    def __init__(s): s.connected=True; s.ireg=[22000,21900,1200,1100,0,0]; s.hreg6=0; s.block=None; s.writes=0
+    def __init__(s): s.connected=True; s.ireg=[22000,21900,1200,1100,0,0]; s.hreg6=0; s.hreg7=0; s.block=None; s.writes=0
     def blocked_until(s,t):
         return s.block(t) if s.block else t       # waktu paling awal ESP32 bisa menjawab
     def handle(s,cmd):
         sl,fc,_,a,n=cmd
         if fc==4: return [sl,4,0,2*n]+s.ireg[a:a+n]
-        if fc==3: return [sl,3,0,2*n]+[s.hreg6]
-        if fc==6: s.hreg6=n; s.writes+=1; return [sl,6,0,4,a,n]
+        if fc==3:
+            values = [s.hreg6 if a == 6 else s.hreg7 if a == 7 else 0]
+            return [sl,3,0,2*len(values)]+values
+        if fc==6:
+            if a == 6:
+                s.hreg6=n
+                s.writes+=1
+            if a == 7: s.hreg7=n
+            return [sl,6,0,4,a,n]
 
 class Rig:
     def __init__(s,path,timeout_ms=1000,mode='normal'):

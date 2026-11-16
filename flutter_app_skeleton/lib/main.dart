@@ -37,15 +37,19 @@ class ScadaMizanApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => FirebaseService()),
-        ProxyProvider<FirebaseService, ScadaService>(
-          update: (_, firebase, __) => ScadaService(
-            loadCurrentProfile: firebase.getCurrentProfile,
-          ),
+        Provider<ScadaService>(
+          create: (context) {
+            final firebase = context.read<FirebaseService>();
+            return ScadaService(
+              loadCurrentProfile: firebase.getCurrentProfile,
+            );
+          },
         ),
-        ProxyProvider<FirebaseService, EventLogger>(
+        ChangeNotifierProvider<EventLogger>(
           lazy: false,
-          update: (_, firebase, previous) => previous ?? EventLogger(firebase),
-          dispose: (_, logger) => logger.dispose(),
+          create: (context) => EventLogger(
+            context.read<FirebaseService>(),
+          ),
         ),
       ],
       child: MaterialApp(

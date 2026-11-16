@@ -6,25 +6,13 @@
  * "modbus-esp8266"). Lihat platformio.ini untuk versi yang dikunci.
  *
  * CATATAN DESAIN — PROPAGASI STATUS COMFail KE APLIKASI MOBILE:
- * COMFail (kegagalan link Modbus RTU ESP32<->PLC) dideteksi oleh WATCHDOG
- * DI SISI PLC (PLC sebagai master menghitung kegagalan poll berturut-turut).
- * Karena itu, PLC TIDAK BISA "memberitahu" ESP32 tentang status COMFail
- * miliknya sendiri melalui link Modbus RTU yang sama yang sedang gagal —
- * ini secara prinsip tidak mungkin (link yang sedang down tidak bisa
- * dipakai untuk mengabarkan bahwa link itu sedang down).
- *
- * Solusi yang diusulkan di sini: ESP32 melakukan estimasi MANDIRI di sisi
- * SLAVE, independen dari status internal PLC yang sebenarnya, dengan
- * memantau "waktu sejak permintaan Modbus RTU valid terakhir diterima dari
- * PLC". Jika melampaui ambang batas (lebih lama dari beberapa kali interval
- * polling normal PLC), ESP32 menyimpulkan link kemungkinan terputus dari
- * sisinya sendiri, dan mempublikasikan estimasi ini via MQTT (topic
- * TOPIC_STATUS_COMF) agar aplikasi mobile punya indikasi, TANPA mengklaim
- * ini adalah pembacaan langsung status internal PLC yang sebenarnya.
- * Perbedaan ini WAJIB dijelaskan di BAB 4 sebagai keterbatasan desain, dan
- * divalidasi secara empiris pada tahap pengujian (Sub-bab 3.4.6 proposal)
- * apakah estimasi ESP32 ini cukup akurat/responsif dibanding status
- * COMFail asli pada ladder logic PLC.
+ * COMFail merupakan estimasi sisi ESP32 atas komunikasi Modbus RTU ESP32<->PLC.
+ * Status COM hanya NORMAL jika PLC mengirim write heartbeat HREG7 (FC06)
+ * dan heartbeat tersebut masih berumur paling lama MODE_OPERASI_PLC_TIMEOUT_MS.
+ * Pembacaan IREG sensor atau register Modbus lain tidak cukup untuk menyatakan
+ * integrasi PLC aktif. Tanpa write HREG7, termasuk sejak boot, status tetap FAIL.
+ * Ini tetap estimasi komunikasi dari sisi ESP32, bukan pembacaan status internal
+ * alarm PLC. Timeout harus divalidasi terhadap periode pengiriman HREG7 pada ladder.
  */
 
 #ifndef MODBUS_SLAVE_H
@@ -35,8 +23,8 @@
 
 /**
  * Inisialisasi UART2 dan Modbus RTU slave, mendaftarkan seluruh register
- * pada peta register config.h. Panggil sekali di setup(), dari Core 1
- * (task ADC+Modbus), BUKAN dari Core 0 (task WiFi+MQTT).
+ * pada peta register config.h. Panggil sekali dari task Modbus di Core 1,
+ * terpisah dari task akuisisi sensor dan task WiFi+MQTT.
  */
 void modbusSlaveInit();
 
@@ -49,10 +37,13 @@ void modbusSlaveTask();
 
 /**
  * Memperbarui register hasil pengukuran (Input Register) dengan hasil
- * siklus RMS terbaru. Dipanggil dari task ADC+Modbus setelah
- * bacaSemuaSensor() selesai.
+ * siklus RMS terbaru. Dipanggil hanya dari task Modbus setelah menerima
+ * satu HasilSensor valid dari queue task akuisisi sensor.
  */
 void modbusUpdateHasilSensor(const HasilSensor& hasil);
+
+/** Menandai seluruh kanal sensor INVALID (0x0F) tanpa mengubah nilai numerik terakhir. */
+void modbusTandaiSensorTidakValid();
 
 /**
  * Memperbarui register status LRUFail (Input Register). Nilai sebenarnya
@@ -75,6 +66,11 @@ void modbusUpdateLRUFail(bool statusFail);
  */
 uint16_t modbusBacaRegisterCommand();
 
+/** Returns true while PLC has refreshed HREG7 within timeout. */
+bool modbusModeOperasiPLCValid();
+/** 0=UNKNOWN, 1=STANDBY, 2=RUN, 3=INVALID. */
+uint16_t modbusBacaModeOperasiPLC();
+
 /**
  * Mengisi register perintah remote (dipanggil dari task MQTT saat
  * menerima command dari aplikasi mobile — lihat mqtt_handler.cpp).
@@ -82,12 +78,7 @@ uint16_t modbusBacaRegisterCommand();
  */
 void modbusTulisPerintahRemote(uint16_t value);
 
-/**
- * Mengembalikan true bila watchdog lokal mendeteksi tidak ada permintaan
- * Modbus RTU valid dari PLC melebihi ambang batas — estimasi COMFail
- * sisi ESP32 (lihat catatan desain di atas, BUKAN pembacaan langsung
- * status internal PLC).
- */
+/** Returns true unless a PLC HREG7 heartbeat was received within the 5 s timeout. */
 bool modbusEstimasiComFailLokal();
 
 /**

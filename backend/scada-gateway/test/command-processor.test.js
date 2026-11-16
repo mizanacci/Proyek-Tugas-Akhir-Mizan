@@ -50,6 +50,56 @@ const command = {
   status: 'PENDING',
 };
 
+function makeHealthyDeviceState(overrides = {}) {
+  return {
+    mqttConnected: true,
+    sensorReceivedAt: 1000,
+    sensorQuality: 0,
+    lruStatus: 'NORMAL',
+    lruReceivedAt: 1000,
+    comStatus: 'NORMAL',
+    comReceivedAt: 1000,
+    ...overrides,
+  };
+}
+
+async function runDryRunWithState(deviceState, commandId, now = 1100) {
+  const database = new MemoryDatabase({
+    role: 'operator',
+    isActive: true,
+    displayName: 'SCADA Operator',
+  });
+
+  let publishCount = 0;
+
+  const mqttClient = {
+    connected: true,
+    publish() {
+      publishCount++;
+    },
+  };
+
+  const processor = new CommandProcessor({
+    database,
+    mqttClient,
+    config: {
+      commandDispatchEnabled: false,
+      commandMaxAgeMs: 60_000,
+      deviceStatusMaxAgeMs: 15_000,
+      commandTopic: 'scada/mizan/cmd/relay',
+    },
+    getDeviceState: () => deviceState,
+    logger: { info() {}, error() {} },
+    clock: () => now,
+  });
+
+  await processor.process(commandId, command);
+
+  return {
+    result: database.values.get('command_results/' + commandId),
+    publishCount,
+  };
+}
 test('dry-run validates request but never publishes MQTT control', async () => {
   const database = new MemoryDatabase({
     role: 'operator',
@@ -88,10 +138,86 @@ test('dry-run validates request but never publishes MQTT control', async () => {
   const result = database.values.get('command_results/command-dry-run');
   assert.equal(result.status, 'RECEIVED');
   assert.equal(result.dispatch_state, 'dry_run');
+  assert.match(result.detail, /request is recorded in Firebase/);
+  assert.match(result.detail, /no MQTT control message was published/);
   assert.equal(publishCount, 0);
   assert.equal(database.pushCount, 1);
 });
 
+test('dry-run records despite stale sensor telemetry without MQTT publish', async () => {
+  const { result, publishCount } = await runDryRunWithState(
+    makeHealthyDeviceState({ sensorReceivedAt: 0 }),
+    'dry-run-stale-sensor',
+  );
+
+  assert.equal(result.status, 'RECEIVED');
+  assert.equal(result.dispatch_state, 'dry_run');
+
+  assert.match(result.detail, /request is recorded in Firebase/);
+  assert.match(result.detail, /no MQTT control message was published/);
+  assert.equal(publishCount, 0);
+});
+
+test('dry-run records despite non-GOOD sensor quality without MQTT publish', async () => {
+  const { result, publishCount } = await runDryRunWithState(
+    makeHealthyDeviceState({ sensorQuality: 1 }),
+    'dry-run-bad-quality',
+  );
+
+  assert.equal(result.status, 'RECEIVED');
+  assert.equal(result.dispatch_state, 'dry_run');
+
+  assert.match(result.detail, /request is recorded in Firebase/);
+  assert.match(result.detail, /no MQTT control message was published/);
+  assert.equal(publishCount, 0);
+});
+
+test('dry-run records despite missing LRU status without MQTT publish', async () => {
+  const { result, publishCount } = await runDryRunWithState(
+    makeHealthyDeviceState({ lruReceivedAt: 0 }),
+    'dry-run-lru-missing',
+  );
+
+  assert.equal(result.status, 'RECEIVED');
+  assert.equal(result.dispatch_state, 'dry_run');
+
+  assert.match(result.detail, /request is recorded in Firebase/);
+  assert.match(result.detail, /no MQTT control message was published/);
+  assert.equal(publishCount, 0);
+});
+
+test('dry-run records despite COM FAIL without MQTT publish', async () => {
+  const { result, publishCount } = await runDryRunWithState(
+    makeHealthyDeviceState({ comStatus: 'FAIL' }),
+    'dry-run-com-fail',
+  );
+
+  assert.equal(result.status, 'RECEIVED');
+  assert.equal(result.dispatch_state, 'dry_run');
+
+  assert.match(result.detail, /request is recorded in Firebase/);
+  assert.match(result.detail, /no MQTT control message was published/);
+  assert.equal(publishCount, 0);
+});
+
+test('dry-run records despite stale COM heartbeat without MQTT publish', async () => {
+  const { result, publishCount } = await runDryRunWithState(
+    makeHealthyDeviceState({
+      sensorReceivedAt: 20_000,
+      lruReceivedAt: 20_000,
+      comReceivedAt: 1_000,
+    }),
+    'dry-run-com-stale',
+    20_000,
+  );
+
+  assert.equal(result.status, 'RECEIVED');
+  assert.equal(result.dispatch_state, 'dry_run');
+
+  assert.match(result.detail, /request is recorded in Firebase/);
+  assert.match(result.detail, /no MQTT control message was published/);
+  assert.equal(publishCount, 0);
+});
 test('enabled dispatch rejects stale or missing LRU status before MQTT publish', async () => {
   const database = new MemoryDatabase({
     role: 'operator',

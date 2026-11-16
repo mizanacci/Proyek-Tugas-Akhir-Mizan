@@ -9,6 +9,7 @@
 
 #include "mqtt_handler.h"
 #include "config.h"
+#include "modbus_slave.h"
 #include "shared_state.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -62,6 +63,14 @@ static bool comFailPernahKirim = false;
 static unsigned long waktuKirimComFail = 0;
 static unsigned long waktuPublishSensorTerakhir = 0;
 static uint32_t jumlahPublishGagal = 0;
+static bool statusSensorPernahDipublish = false;
+static uint8_t statusVSumberTerakhir = 0xFF;
+static uint8_t statusVBebanTerakhir = 0xFF;
+static bool suspectISumberTerakhir = false;
+static bool suspectIBebanTerakhir = false;
+static uint16_t modeOperasiTerakhir = 0xFFFF;
+static bool modeOperasiValidTerakhir = false;
+static const char* const MODE_OPERASI_NAMA[] = {"UNKNOWN", "STANDBY", "RUN", "INVALID"};
 
 // --- Callback dipanggil PubSubClient saat pesan masuk dari topic yang di-subscribe ---
 static void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -168,7 +177,9 @@ void mqttHandlerInit() {
   mqttClient.setCallback(mqttCallback);
   // Buffer default PubSubClient (256 byte) bisa terlalu kecil untuk payload
   // JSON gabungan 4 nilai RMS + metadata; dinaikkan agar aman.
-  mqttClient.setBufferSize(512);
+  mqttClient.setBufferSize(1024);
+  Serial.printf("[MQTT] Packet buffer=%u bytes\n",
+                static_cast<unsigned>(mqttClient.getBufferSize()));
 
   wifiConnect();
   mqttReconnect();
@@ -184,11 +195,31 @@ void mqttHandlerTask() {
   // Ambil data sensor terbaru dari Core 1 (non-blocking, xQueueReceive
   // dengan timeout 0 — jika belum ada data baru, lewati publish siklus ini)
   HasilSensor hasil;
-  if (xQueueReceive(queueDataSensor, &hasil, 0) == pdTRUE &&
-      (waktuPublishSensorTerakhir == 0 ||
-       millis() - waktuPublishSensorTerakhir >= INTERVAL_PUBLISH_SENSOR_MS)) {
-    mqttPublishDataSensor(hasil);
-    waktuPublishSensorTerakhir = millis();
+  if (xQueueReceive(queueDataSensor, &hasil, 0) == pdTRUE) {
+    const uint16_t modeOperasiSekarang = modbusBacaModeOperasiPLC();
+    const bool modeOperasiValidSekarang = modbusModeOperasiPLCValid();
+    const bool statusBerubah = !statusSensorPernahDipublish ||
+        (hasil.status_tegangan_sumber != statusVSumberTerakhir) ||
+        (hasil.status_tegangan_beban != statusVBebanTerakhir) ||
+        (hasil.suspect_arus_sumber != suspectISumberTerakhir) ||
+        (hasil.suspect_arus_beban != suspectIBebanTerakhir) ||
+        (modeOperasiSekarang != modeOperasiTerakhir) ||
+        (modeOperasiValidSekarang != modeOperasiValidTerakhir);
+    const bool intervalTerpenuhi = (waktuPublishSensorTerakhir == 0) ||
+        (millis() - waktuPublishSensorTerakhir >= INTERVAL_PUBLISH_SENSOR_MS);
+
+    // Perubahan status sensor dikirim segera; telemetri reguler tetap tiap 5 s.
+    if (statusBerubah || intervalTerpenuhi) {
+      mqttPublishDataSensor(hasil);
+      waktuPublishSensorTerakhir = millis();
+      statusSensorPernahDipublish = true;
+      statusVSumberTerakhir = hasil.status_tegangan_sumber;
+      statusVBebanTerakhir = hasil.status_tegangan_beban;
+      suspectISumberTerakhir = hasil.suspect_arus_sumber;
+      suspectIBebanTerakhir = hasil.suspect_arus_beban;
+      modeOperasiTerakhir = modeOperasiSekarang;
+      modeOperasiValidTerakhir = modeOperasiValidSekarang;
+    }
   }
 
   // Publikasikan estimasi COMFail sisi ESP32 saat berubah atau heartbeat.
@@ -203,15 +234,35 @@ void mqttPublishDataSensor(const HasilSensor& hasil) {
     return;
   }
 
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<512> doc;
   doc["v_sumber"] = hasil.tegangan_sumber;
   doc["v_beban"]  = hasil.tegangan_beban;
   doc["i_sumber"] = hasil.arus_sumber;
   doc["i_beban"]  = hasil.arus_beban;
-  doc["kualitas"] = hasil.bitmask_kualitas;  // bitmask GOOD(0)/SUSPECT(1), lihat config.h
-  doc["ts"]       = millis();  // [DRAF] pertimbangkan NTP/epoch time asli untuk BAB 4 bila diperlukan timestamp absolut
+  doc["kualitas"] = static_cast<uint8_t>(hasil.bitmask_kualitas & 0x0F);
+  static const char* const statusTeganganNama[] = {"NORMAL", "NORMAL", "SUSPECT", "WARNING"};
+  doc["status_v_sumber"] = statusTeganganNama[hasil.status_tegangan_sumber];
+  doc["status_v_beban"] = statusTeganganNama[hasil.status_tegangan_beban];
+  doc["warning_v_sumber"] = hasil.warning_tegangan_sumber;
+  doc["warning_v_beban"] = hasil.warning_tegangan_beban;
+  doc["suspect_v_sumber"] = (hasil.status_tegangan_sumber == STATUS_V_SUSPECT);
+  doc["suspect_v_beban"] = (hasil.status_tegangan_beban == STATUS_V_SUSPECT);
+  doc["ac_off_v_sumber"] = (hasil.status_tegangan_sumber == STATUS_V_AC_OFF);
+  doc["ac_off_v_beban"] = (hasil.status_tegangan_beban == STATUS_V_AC_OFF);
+  doc["suspect_i_sumber"] = hasil.suspect_arus_sumber;
+  doc["suspect_i_beban"] = hasil.suspect_arus_beban;
+  doc["status_i_sumber"] = hasil.suspect_arus_sumber ? "SUSPECT" : "NORMAL";
+  doc["status_i_beban"] = hasil.suspect_arus_beban ? "SUSPECT" : "NORMAL";
+  const uint16_t modeOperasi = modbusBacaModeOperasiPLC();
+  doc["mode_operasi"] = MODE_OPERASI_NAMA[(modeOperasi <= MODE_OPERASI_INVALID)
+      ? modeOperasi : MODE_OPERASI_INVALID];
+  doc["mode_operasi_valid"] = modbusModeOperasiPLCValid();
+  doc["status_warning_tegangan"] =
+      (hasil.warning_tegangan_sumber || hasil.warning_tegangan_beban)
+          ? "WARNING" : "NORMAL";
+  doc["ts"] = millis();
 
-  char buffer[256];
+  char buffer[512];
   size_t n = serializeJson(doc, buffer);
   if (doc.overflowed() || n == 0 || n >= sizeof(buffer)) {
     ++jumlahPublishGagal;
@@ -225,8 +276,26 @@ void mqttPublishDataSensor(const HasilSensor& hasil) {
     Serial.println("[MQTT] PUBLISH SENSOR ACCEPTED (QoS 0)");
   } else {
     ++jumlahPublishGagal;
-    Serial.printf("[MQTT] PUBLISH SENSOR FAILED (count=%lu)\n",
-                  static_cast<unsigned long>(jumlahPublishGagal));
+    const size_t topicLength = sizeof(TOPIC_DATA_SENSOR) - 1U;
+    const size_t remainingLength = 2U + topicLength + n;
+
+    size_t remainingLengthBytes = 1U;
+    for (size_t value = remainingLength; value >= 128U; value >>= 7U) {
+      ++remainingLengthBytes;
+    }
+
+    const size_t requiredPacketLength =
+        1U + remainingLengthBytes + remainingLength;
+
+    Serial.printf(
+        "[MQTT] PUBLISH SENSOR FAILED (count=%lu) payload=%u topic=%u packet=%u buffer=%u connected=%d state=%d\n",
+        static_cast<unsigned long>(jumlahPublishGagal),
+        static_cast<unsigned>(n),
+        static_cast<unsigned>(topicLength),
+        static_cast<unsigned>(requiredPacketLength),
+        static_cast<unsigned>(mqttClient.getBufferSize()),
+        mqttClient.connected() ? 1 : 0,
+        mqttClient.state());
   }
 }
 

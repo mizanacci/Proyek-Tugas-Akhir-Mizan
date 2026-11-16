@@ -1,7 +1,13 @@
 import sys; sys.path.insert(0,'.')
 from rig_hw import *
-P=sys.argv[1] if len(sys.argv)>1 else 'SCADA_CP1E_Mizan.cxt'
+P=sys.argv[1] if len(sys.argv)>1 else 'SCADA_CP1E_Mizan_Modbus_Revision_V4_InternalADC.cxt'
 def D(r,n): return r.plc.word(n)
+print('=== E1: heartbeat HREG7 dari ladder memperbarui callback firmware ===')
+r=RigHW(P,timeout_ms=1000,lru_bug=False); r.step(4)
+mode_state=r.h.cmd('MODE')
+print('  firmware HREG7:',mode_state,'| ladder HREG7=',r.plc.word('D117'))
+assert mode_state == 'MODE 0 valid=1' and r.plc.word('D117') == 0
+r.close()
 print('=== E2: perintah remote dari aplikasi (HREG 6) — firmware apa adanya vs LRUFail diperbaiki ===')
 for bug in (True,False):
     r=RigHW(P,timeout_ms=1000,block_ms=420,lru_bug=bug); r.step(4); r.press('UNLOCK'); r.step(4)

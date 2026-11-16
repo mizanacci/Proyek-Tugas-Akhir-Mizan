@@ -31,10 +31,80 @@ function finiteNonNegativeNumber(value, field) {
   return value;
 }
 
+function parseVoltageStatus(data, side) {
+  const fields = {
+    status: 'status_v_' + side,
+    suspect: 'suspect_v_' + side,
+    warning: 'warning_v_' + side,
+    acOff: 'ac_off_v_' + side,
+  };
+  const present = Object.values(fields).filter((field) =>
+    Object.prototype.hasOwnProperty.call(data, field),
+  ).length;
+
+  // Older firmware payloads remain readable, but their voltage state is unknown.
+  if (present === 0) return 'UNKNOWN';
+  if (present !== 4) {
+    throw new Error('Incomplete voltage status fields for ' + side);
+  }
+
+  const rawStatus = data[fields.status];
+  const suspect = data[fields.suspect];
+  const warning = data[fields.warning];
+  const acOff = data[fields.acOff];
+
+  if (typeof rawStatus !== 'string' ||
+      !['NORMAL', 'SUSPECT', 'WARNING'].includes(rawStatus)) {
+    throw new Error('Invalid voltage status field: ' + fields.status);
+  }
+  for (const [name, value] of Object.entries({ suspect, warning, acOff })) {
+    if (typeof value !== 'boolean') {
+      throw new Error('Invalid voltage status flag for ' + side + ': ' + name);
+    }
+  }
+
+  const normalized = warning ? 'WARNING'
+    : suspect ? 'SUSPECT'
+      : acOff ? 'AC_OFF'
+        : 'NORMAL';
+  const expectedWireStatus = normalized === 'AC_OFF' ? 'NORMAL' : normalized;
+
+  if (rawStatus !== expectedWireStatus ||
+      Number(suspect) + Number(warning) + Number(acOff) > 1) {
+    throw new Error('Inconsistent voltage status flags for ' + side);
+  }
+
+  return normalized;
+}
+
+function parseCurrentStatus(data, side) {
+  const statusField = 'status_i_' + side;
+  const suspectField = 'suspect_i_' + side;
+  const hasStatus = Object.prototype.hasOwnProperty.call(data, statusField);
+  const hasSuspect = Object.prototype.hasOwnProperty.call(data, suspectField);
+
+  if (!hasStatus && !hasSuspect) return 'UNKNOWN';
+  if (!hasStatus || !hasSuspect) {
+    throw new Error('Incomplete current status fields for ' + side);
+  }
+
+  const status = data[statusField];
+  const suspect = data[suspectField];
+  if (typeof status !== 'string' || !['NORMAL', 'SUSPECT'].includes(status) ||
+      typeof suspect !== 'boolean' || status !== (suspect ? 'SUSPECT' : 'NORMAL')) {
+    throw new Error('Inconsistent current status fields for ' + side);
+  }
+
+  return status;
+}
+
 export function parseSensorPayload(payload) {
   const data = parseJsonObject(payload, 'Sensor');
   const quality = data.kualitas;
   const deviceTimestampMs = data.ts;
+  const operationMode = data.mode_operasi === undefined ? "UNKNOWN" : data.mode_operasi;
+  const operationModeValid = data.mode_operasi_valid === undefined ? false : data.mode_operasi_valid;
+  const allowedOperationModes = ["UNKNOWN", "STANDBY", "RUN", "INVALID"];
 
   if (!Number.isSafeInteger(quality) || quality < 0 || quality > 15) {
     throw new Error('Invalid sensor field: kualitas must be an integer from 0 to 15');
@@ -42,14 +112,31 @@ export function parseSensorPayload(payload) {
   if (!Number.isSafeInteger(deviceTimestampMs) || deviceTimestampMs < 0) {
     throw new Error('Invalid sensor field: ts must be a non-negative integer');
   }
+  if (typeof operationMode !== "string" || !allowedOperationModes.includes(operationMode)) {
+    throw new Error("Invalid sensor field: mode_operasi is not recognized");
+  }
+  if (typeof operationModeValid !== "boolean") {
+    throw new Error("Invalid sensor field: mode_operasi_valid must be boolean");
+  }
+
+  const sourceVoltageStatus = parseVoltageStatus(data, 'sumber');
+  const loadVoltageStatus = parseVoltageStatus(data, 'beban');
+  const sourceCurrentStatus = parseCurrentStatus(data, 'sumber');
+  const loadCurrentStatus = parseCurrentStatus(data, 'beban');
 
   return Object.freeze({
     sourceVoltage: finiteNonNegativeNumber(data.v_sumber, 'v_sumber'),
     loadVoltage: finiteNonNegativeNumber(data.v_beban, 'v_beban'),
+    sourceVoltageStatus,
+    loadVoltageStatus,
     sourceCurrent: finiteNonNegativeNumber(data.i_sumber, 'i_sumber'),
     loadCurrent: finiteNonNegativeNumber(data.i_beban, 'i_beban'),
+    sourceCurrentStatus,
+    loadCurrentStatus,
     quality,
     deviceTimestampMs,
+    operationMode,
+    operationModeValid,
   });
 }
 
@@ -69,6 +156,8 @@ export function buildTelemetrySnapshot({
   sensor,
   lruStatus,
   comStatus,
+  lruReceivedAt = 0,
+  comReceivedAt = 0,
   now = Date.now(),
 }) {
   return {
@@ -78,11 +167,21 @@ export function buildTelemetrySnapshot({
     device_ts_ms: sensor.deviceTimestampMs,
     v_sumber: sensor.sourceVoltage,
     v_beban: sensor.loadVoltage,
+    status_v_sumber: sensor.sourceVoltageStatus || 'UNKNOWN',
+    status_v_beban: sensor.loadVoltageStatus || 'UNKNOWN',
     i_sumber: sensor.sourceCurrent,
     i_beban: sensor.loadCurrent,
+    status_i_sumber: sensor.sourceCurrentStatus || 'UNKNOWN',
+    status_i_beban: sensor.loadCurrentStatus || 'UNKNOWN',
     kualitas: sensor.quality,
+    mode_operasi: sensor.operationMode || "UNKNOWN",
+    mode_operasi_valid: sensor.operationModeValid === true,
     status_lru: lruStatus || 'UNKNOWN',
+    status_lru_received_at: Number.isSafeInteger(lruReceivedAt) && lruReceivedAt > 0
+      ? lruReceivedAt : 0,
     status_com: comStatus || 'UNKNOWN',
+    status_com_received_at: Number.isSafeInteger(comReceivedAt) && comReceivedAt > 0
+      ? comReceivedAt : 0,
     // Current firmware has no independent LBS auxiliary-contact feedback topic.
     // Never infer the physical position from the last requested command.
     status_lbs: 'UNKNOWN',

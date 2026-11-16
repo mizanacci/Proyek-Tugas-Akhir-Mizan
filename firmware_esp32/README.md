@@ -6,8 +6,8 @@ Ringkasan desain untuk referensi cepat dan bahan BAB 4. Detail lengkap ada di ko
 
 | File | Isi |
 |---|---|
-| `src/config.h` | **Sumber kebenaran tunggal** — pin, peta register Modbus, kredensial WiFi/MQTT, konstanta kalibrasi |
-| `src/sensors.h/.cpp` | Pembacaan ADS1115 16-bit via I2C + perhitungan RMS |
+| `src/config.h` | Konfigurasi lokal yang di-ignore; gunakan `src/config.h.example` sebagai template placeholder |
+| `src/sensors.h/.cpp` | ADC internal ESP32-S3 pada GPIO4-GPIO7 + perhitungan RMS |
 | `src/modbus_slave.h/.cpp` | Modbus RTU slave (library ModbusRTU/emelianov), termasuk watchdog estimasi COMFail lokal |
 | `src/mqtt_handler.h/.cpp` | WiFi + MQTT (TLS, LWT, publish/subscribe) ke HiveMQ Cloud |
 | `src/shared_state.h` | Primitif FreeRTOS (queue + volatile bool) untuk komunikasi aman Core 0 ↔ Core 1 |
@@ -41,19 +41,26 @@ ESP32 = **slave**, PLC = **master**. Alamat 0-based sesuai konvensi library.
 | 3 | `REG_RMS_I_BEBAN` | Input Register, FC04 | Arus RMS sisi beban | ÷1000 → Ampere |
 | 4 | `REG_KUALITAS_DATA` | Input Register, FC04 | Bitmask GOOD(0)/SUSPECT(1) per kanal (bit0-3) | — |
 | 5 | `REG_LRUFAIL` | Input Register, FC04 | Status LRUFail (0=NORMAL, 1=FAIL) | — |
-| 6 | `REG_CMD_REMOTE` | Holding Register, FC03/FC06 | Perintah remote (0=none, 1=NO, 2=NC) — **PLC wajib tulis-balik 0 setelah eksekusi** | — |
+| 6 | `REG_CMD_REMOTE` | Holding Register, FC03/FC06 | Perintah remote (0=none, 1=NO, 2=NC) — PLC tulis-balik 0 setelah evaluasi | — |
+| 7 | `REG_MODE_OPERASI_PLC` | Holding Register, FC06 | Heartbeat/status PLC: 0=UNKNOWN, 1=STANDBY, 2=RUN, 3=INVALID; write PLC memperbarui watchdog 5 s | — |
 
-**Wajib dikonfirmasi**: pemetaan alamat di atas ke konfigurasi *Modbus-RTU Easy Master* pada PLC Setup CX-Programmer harus disamakan manual — tidak ada sinkronisasi otomatis antara firmware dan ladder logic.
+**Wajib dikonfirmasi**: atur port PLC secara manual ke *Modbus-RTU Easy Master*, 9600 8N1, serta cocokkan pemetaan alamat. CXT yang tersedia tidak menyimpan parameter serial.
 
 Alamat pada tabel adalah indeks internal library mulai dari 0. Pada CX-Programmer,
 ikuti notasi alamat yang ditampilkan konfigurasi Easy Master dan lakukan satu
 uji baca terhadap register 0 sebelum mengisi seluruh map; jangan menambahkan
 offset 30001/40001 tanpa memastikan konvensi perangkat lunak yang digunakan.
 
-Parameter firmware saat ini adalah 9600 baud, `SERIAL_8N1`, slave ID 1, melalui
-RS-232C 3-kabel dan MAX3232. `SERIAL_8E1` belum dipilih karena parity port PLC
-belum dibuktikan dari konfigurasi CX-Programmer. Kedua sisi wajib memakai baud,
-data bits, parity, stop bit, dan slave ID yang sama.
+Firmware memakai 9600 baud, `SERIAL_8N1`, slave ID 1, UART2 TX GPIO17 dan RX
+GPIO18 melalui MAX3232. Atur PLC ke Modbus-RTU Easy Master 9600 8N1, lalu
+power-cycle PLC. Cocokkan DB9 pin 2 SD/TXD, pin 3 RD/RXD, dan pin 9 SG; pin 5
+bukan signal ground. Wiring fisik belum diverifikasi.
+
+Di CX-Programmer, buka PLC Settings untuk CP1E dan pilih port serial RS-232C
+bawaan sebagai Modbus-RTU Easy Master. Tetapkan baud 9600, 8 data bit, parity
+None, dan 1 stop bit; pastikan pengaturan sesuai varian CPU/port yang digunakan.
+Transfer konfigurasi ke PLC lalu lakukan power-cycle agar serial setting berlaku.
+File CXT yang tersedia tidak menyimpan atau membuktikan pengaturan ini.
 
 **Mengapa "Arus Gangguan" tidak punya register sendiri**: nilai ini diusulkan dihitung di ladder logic PLC (bandingkan `REG_RMS_I_BEBAN` terhadap ambang batas), bukan dikirim terpisah dari ESP32 — karena secara fisik berasal dari sensor arus yang sama, dan sesuai Batasan Rancangan proposal (poin keterbatasan Trip Otomatis), nilai ini murni untuk tampilan SCADA/HMI, tidak memicu aksi apa pun di ESP32 maupun firmware.
 
@@ -69,18 +76,15 @@ Register `REG_CMD_REMOTE` dirancang dengan pola tulis-baca-tulis-balik (acknowle
 
 ## Kalibrasi dan diagnostik sensor
 
-ADS1115 dibaca pada A0=ZMPT sumber, A1=ZMPT beban, A2=ACS712 sumber, dan
-A3=ACS712 beban. Setiap batch mengambil 50 sampel, menghitung rata-rata DC
-batch, lalu menghitung RMS komponen AC. Gain dan offset ZMPT sumber/beban
-diterapkan secara terpisah. Nilai `BATAS_TEGANGAN_OFF` hanya mematikan residual
-di bawah ambang; bukan pengganti kalibrasi.
+Firmware memakai ADC internal ESP32-S3: GPIO4/5 untuk ZMPT sumber/beban dan
+GPIO6/7 untuk ACS712 sumber/beban. Setiap kanal memakai 200 sampel dengan
+interval target 500 us; RMS dihitung setelah bias DC dikurangi.
 
-Nilai `BATAS_NOISE_ARUS_A` default yang dipakai agar kondisi tanpa beban tetap
-0 A adalah 3 A. Nilai ini dipilih untuk menekan noise sensor ACS712 yang
-muncul saat tidak ada beban terpasang. Setelah pengukuran aktual dengan ammeter
-referensi, nilai ini dapat dikurangi sesuai ambang noise yang benar-benar
-terlihat di lapangan. Varian ACS712, Vcc, rangkaian pembagi, dan sensitivitas
-100 mV/A belum dapat diverifikasi dari source saja.
+Rentang NORMAL tegangan adalah 200-230 V inklusif; nilai di luar rentang
+menjadi SUSPECT lalu WARNING setelah 15 detik. Arus menjadi SUSPECT hanya pada
+nilai strictly lebih besar dari 1.80 A atau ketika kanal tidak valid. Arus 0 A
+yang valid tetap NORMAL/standby. Koefisien sensor tidak boleh diubah tanpa
+hasil ukur aktual terhadap alat referensi dan persetujuan.
 
 Aktifkan `MODE_DEBUG_SENSOR` hanya saat diagnosis. Serial Monitor akan
 menampilkan rentang raw ADC, DC, RMS, nilai tegangan sebelum kalibrasi, nilai
@@ -106,15 +110,11 @@ clipping/wiring.
    setelah eksekusi. Firmware tidak menyatakan relay berubah hanya karena
    register berhasil ditulis.
 
-## Status Migrasi ADS1115
+## Baseline ADC Internal
 
-Migrasi dari ADC bawaan ESP32 ke ADS1115 16-bit sudah selesai di firmware.
-ADS1115 memakai alamat I2C `0x48`, SDA GPIO8, dan SCL GPIO9. Pemetaan kanal
-adalah A0=ZMPT sumber, A1=ZMPT beban, A2=ACS712 sumber, dan A3=ACS712 beban.
-Format data MQTT tidak berubah. Data sensor dipublikasikan setiap 5 detik
-(lihat `INTERVAL_PUBLISH_SENSOR_MS` di `config.h`), sedangkan pembacaan lokal
-dan register Modbus tetap diperbarui setiap siklus. ADS1115 dikonfigurasi pada `GAIN_ONE` dan
-`860 SPS`; kalibrasi sensor wajib diulang setelah migrasi.
+ADC internal ESP32-S3 adalah satu-satunya jalur akuisisi sensor aktif; firmware
+tidak memakai ADS1115 atau I2C. Telemetri MQTT dipublikasikan setiap 5 detik
+atau segera ketika status sensor berubah.
 
 ## Mode Diagnosis
 
@@ -124,24 +124,16 @@ dan register Modbus tetap diperbarui setiap siklus. ADS1115 dikonfigurasi pada `
 - `MODE_DEBUG_SENSOR` (default nonaktif) mencetak rata-rata DC, RMS, dan hasil
   konversi fisik setiap dua siklus pembacaan sensor.
 
-## Temuan Audit & Perbaikan (setelah migrasi ADS1115 + ESP32-S3)
+## Status Integrasi
 
-Empat isu ditemukan lewat pembacaan langsung kode (bukan dari laporan build sukses, yang tidak menangkap jenis masalah ini) dan sudah diperbaiki:
-
-1. **`platformio.ini` masih menyasar board ESP32 klasik** (`board = esp32dev`) meski migrasi ke ESP32-S3 sudah diminta sebelumnya — diperbaiki ke `esp32-s3-devkitc-1`. Kemungkinan prompt migrasi S3 sebelumnya tidak sempat tereksekusi penuh.
-2. **Delay antar-sampel redundan** — `delayMicroseconds(INTERVAL_ADC_US)` dipanggil setelah tiap sampel ADS1115 di `hitungRMS()`, padahal `readADC_SingleEnded()` sendiri sudah *blocking* menunggu konversi selesai. Dampaknya: total waktu 4 kanal × 50 sampel bisa mendekati/melampaui target siklus 1 detik. Delay dihapus dari jalur ADS1115.
-3. **Referensi tegangan ACS712 salah** — kode masih memakai `3300.0f` (asumsi ADC bawaan 3,3V) padahal ADS1115 pada `GAIN_ONE` punya rentang penuh ±4,096V. Ini membuat SETIAP pembacaan arus meleset ~20% terlalu rendah dari nilai sebenarnya, terlepas dari kalibrasi apa pun. Diperbaiki ke `4096.0f`.
-4. **Ambang kualitas data `RMS_ADC_MIN_WAJAR` tidak ikut terskala** — nilai hardcode `5.0f` dikalibrasi untuk rentang lama (0-4095), jadi di rentang baru (0-32767) jadi nyaris tidak berarti (~0,015% dari full-scale) — deteksi sensor lepas/tidak wajar jadi hampir tidak pernah aktif. Diskalakan proporsional.
+Gateway tetap DRY-RUN untuk dispatch command. Build dan simulasi software tidak
+membuktikan komunikasi fisik ESP32-PLC atau operasi aktuator. Posisi fisik LBS
+tetap UNKNOWN tanpa feedback auxiliary contact independen.
 
 **Pelajaran untuk workflow ke depan**: perubahan besar (migrasi board/ADC) sebaiknya diverifikasi dengan membaca ulang kode yang benar-benar ter-commit, bukan hanya dari ringkasan "build sukses" — kompilasi berhasil tidak berarti logika/kalibrasinya benar.
 
 ## Asumsi yang Perlu Diverifikasi Sebelum Implementasi Akhir
 
-- Pin UART (GPIO17 TX/GPIO18 RX) — cek terhadap board ESP32-S3 DevKitC-1 fisik yang dipakai (sudah dikonfirmasi bebas dari pin strapping S3: GPIO0/3/45/46, dan bebas dari pin USB native GPIO19/20)
-- Koefisien kalibrasi ZMPT101B (`ZMPT_*_GAIN/OFFSET`) — nilai awal `0.1700`
-  disesuaikan dari pengujian 220 VAC yang sebelumnya terbaca sekitar 160 V;
-  isi ulang setelah Panduan Kalibrasi (dokumen 02) dijalankan
-- Sensitivitas ACS712 (`ACS712_MV_PER_AMP`, `ACS712_ZERO_OFFSET_MV`) — nilai datasheet nominal, pertimbangkan kalibrasi serupa untuk akurasi lebih baik
-- Nama fungsi callback `onGetIreg`/`onSetHreg` pada `modbus_slave.cpp` — cek terhadap API.md versi library yang benar-benar terpasang
-- Ambang batas watchdog COMFail lokal (`AMBANG_WATCHDOG_MS`) dan ambang kewajaran kualitas data (`RMS_ADC_MIN_WAJAR`/`MAX_WAJAR`) — sesuaikan setelah pengamatan pola polling PLC aktual
-- Pilihan `setCACert()` vs `setInsecure()` pada `mqtt_handler.cpp` — isi sertifikat CA asli, atau tetapkan sebagai keputusan sadar bila tetap memakai `setInsecure()` untuk tahap prototipe
+- Verifikasi pin MAX3232 dan orientasi konektor DB9 pada perangkat fisik sebelum memasang kabel.
+- Atur port CP1E ke Modbus-RTU Easy Master 9600 8N1 di CX-Programmer lalu power-cycle PLC; CXT tidak membuktikan setting serial.
+- Validasi periode dan timeout heartbeat HREG7 pada PLC asli.

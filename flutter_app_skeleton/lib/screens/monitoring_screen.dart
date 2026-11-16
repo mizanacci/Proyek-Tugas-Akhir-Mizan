@@ -150,24 +150,30 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                     nilai: telemetry.sourceVoltage,
                     satuan: 'V',
                     good: (telemetry.quality & 0x01) == 0,
+                    statusOperasi: telemetry.sourceVoltageStatus,
                   ),
                   _KartuUkuran(
                     label: 'Tegangan Sisi Beban',
                     nilai: telemetry.loadVoltage,
                     satuan: 'V',
                     good: (telemetry.quality & 0x02) == 0,
+                    statusOperasi: telemetry.loadVoltageStatus,
                   ),
                   _KartuUkuran(
                     label: 'Arus Sisi Sumber',
                     nilai: telemetry.sourceCurrent,
                     satuan: 'A',
                     good: (telemetry.quality & 0x04) == 0,
+                    statusOperasi: telemetry.sourceCurrentStatus,
+                    isCurrent: true,
                   ),
                   _KartuUkuran(
                     label: 'Arus Sisi Beban',
                     nilai: telemetry.loadCurrent,
                     satuan: 'A',
                     good: (telemetry.quality & 0x08) == 0,
+                    statusOperasi: telemetry.loadCurrentStatus,
+                    isCurrent: true,
                   ),
                 ],
               );
@@ -194,28 +200,83 @@ String _formatWaktu(int millisecondsSinceEpoch) {
   return '$jam:$menit:$detik';
 }
 
+String _labelStatusTegangan(String status) => switch (status) {
+      'AC_OFF' => 'AC_OFF / STANDBY',
+      'NORMAL' => 'NORMAL',
+      'SUSPECT' => 'SUSPECT',
+      'WARNING' => 'WARNING',
+      _ => 'UNKNOWN',
+    };
+
+String _labelStatusArus(String status) => switch (status) {
+      'NORMAL' => 'NORMAL / STANDBY',
+      'SUSPECT' => 'SUSPECT',
+      _ => 'UNKNOWN',
+    };
+
+Color _warnaStatusArus(String status) => switch (status) {
+      'NORMAL' => Colors.green,
+      'SUSPECT' => Colors.orange,
+      _ => Colors.grey,
+    };
+
+Color _warnaStatusTegangan(String status) => switch (status) {
+      'NORMAL' => Colors.green,
+      'AC_OFF' => Colors.blueGrey,
+      'SUSPECT' => Colors.orange,
+      'WARNING' => Colors.red,
+      _ => Colors.grey,
+    };
+
 class _KartuUkuran extends StatelessWidget {
   final String label;
   final double nilai;
   final String satuan;
   final bool good;
-  const _KartuUkuran(
-      {required this.label,
-      required this.nilai,
-      required this.satuan,
-      required this.good});
+  final String? statusOperasi;
+  final bool isCurrent;
+
+  const _KartuUkuran({
+    required this.label,
+    required this.nilai,
+    required this.satuan,
+    required this.good,
+    this.statusOperasi,
+    this.isCurrent = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final hasSubtitle = !good || statusOperasi != null;
+
     return Card(
       child: ListTile(
         title: Text(label),
         trailing: Text('${nilai.toStringAsFixed(2)} $satuan',
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        subtitle: good
+        subtitle: !hasSubtitle
             ? null
-            : const Text('SUSPECT — nilai di luar rentang wajar',
-                style: TextStyle(color: Colors.orange)),
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (statusOperasi != null)
+                    Text(
+                      'Status ${isCurrent ? 'arus' : 'tegangan'}: '
+                      '${isCurrent ? _labelStatusArus(statusOperasi!) : _labelStatusTegangan(statusOperasi!)}',
+                      style: TextStyle(
+                        color: isCurrent
+                            ? _warnaStatusArus(statusOperasi!)
+                            : _warnaStatusTegangan(statusOperasi!),
+                      ),
+                    ),
+                  if (!good)
+                    const Text(
+                      'Kualitas kanal/pengukuran: SUSPECT - perlu diperiksa',
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                ],
+              ),
       ),
     );
   }

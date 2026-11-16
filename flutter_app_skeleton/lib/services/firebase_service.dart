@@ -20,10 +20,13 @@ class FirebaseService extends ChangeNotifier {
     databaseURL: firebaseDatabaseUrl,
   );
   late final DatabaseReference _db = _database.ref();
-  late final Stream<bool> _koneksiDatabase = _db
-      .child('.info/connected')
-      .onValue
-      .map((event) => event.snapshot.value == true);
+  bool? _statusKoneksiDatabase;
+  late final Stream<bool> _koneksiDatabase =
+      _db.child('.info/connected').onValue.map((event) {
+    final connected = event.snapshot.value == true;
+    _statusKoneksiDatabase = connected;
+    return connected;
+  }).asBroadcastStream();
   UserProfile? _currentProfile;
   int _loginGeneration = 0;
   String? _pesanLoginTerakhir;
@@ -34,6 +37,7 @@ class FirebaseService extends ChangeNotifier {
 
   Stream<User?> get perubahanUser => _auth.authStateChanges();
   Stream<bool> get koneksiDatabase => _koneksiDatabase;
+  bool? get statusKoneksiDatabase => _statusKoneksiDatabase;
 
   Future<UserCredential> loginDenganEmail(String email, String password) async {
     try {
@@ -129,10 +133,22 @@ class FirebaseService extends ChangeNotifier {
   Future<UserProfile?> getCurrentProfile() async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return null;
+
     final profile = await profileUntukUid(uid);
     if (_auth.currentUser?.uid != uid) return null;
+
+    final previous = _currentProfile;
+    final changed = previous?.uid != profile?.uid ||
+        previous?.displayName != profile?.displayName ||
+        previous?.role != profile?.role ||
+        previous?.isActive != profile?.isActive;
+
     _currentProfile = profile;
-    notifyListeners();
+
+    if (changed) {
+      notifyListeners();
+    }
+
     return profile;
   }
 

@@ -43,6 +43,7 @@ class EventLogger extends ChangeNotifier {
       _aktif = true;
       notifyListeners();
     } catch (error) {
+      if (generation != _authGeneration) return;
       _aktif = false;
       notifyListeners();
       debugPrint('[Session] Profile validation failed: $error');
@@ -51,6 +52,7 @@ class EventLogger extends ChangeNotifier {
 
   @override
   void dispose() {
+    _authGeneration++;
     unawaited(_authSubscription.cancel());
     super.dispose();
   }

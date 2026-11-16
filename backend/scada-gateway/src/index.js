@@ -47,10 +47,18 @@ async function main() {
     },
   });
 
+  const resetPublishedTelemetrySession = (reason) => {
+    return telemetry.resetSession().catch((error) => {
+      log('error', 'Failed to invalidate Firebase telemetry snapshot' +
+        (reason ? ' (' + reason + ')' : '') + ': ' + error.message);
+      throw error;
+    });
+  };
+
   const invalidateDeviceSession = (reason) => {
     mqttConnected = false;
-    telemetry.resetSession();
-    log('error', reason + '; cached telemetry and link status invalidated.');
+    void resetPublishedTelemetrySession(reason).catch(() => {});
+    log('error', reason + '; cached telemetry and published link status invalidated.');
   };
 
   const processor = new CommandProcessor({
@@ -64,28 +72,40 @@ async function main() {
     },
   });
 
-  await processor.recoverInterruptedDispatches();
-  const detachCommandListener = processor.attach();
 
   mqttClient.on('connect', () => {
-    telemetry.resetSession();
-    mqttConnected = true;
-    log('info', 'MQTT connected over TLS; waiting for fresh telemetry and retained link states.');
-    mqttClient.subscribe({
-      [config.sensorTopic]: { qos: 0 },
-      [config.lruTopic]: { qos: 1 },
-      [config.comTopic]: { qos: 1 },
-    }, (error, granted) => {
-      if (error) {
-        invalidateDeviceSession('MQTT subscription failed: ' + error.message);
-        return;
-      }
-      const refused = granted.filter((item) => item.qos === 128);
-      if (refused.length) {
-        invalidateDeviceSession('Broker refused one or more required telemetry subscriptions');
-      } else {
-        log('info', 'MQTT telemetry/status subscriptions acknowledged.');
-      }
+    // Do not mark the device session ready before the persisted
+    // telemetry snapshot has been invalidated successfully.
+    mqttConnected = false;
+
+    void resetPublishedTelemetrySession('MQTT connected').then(() => {
+      if (!mqttClient.connected) return;
+
+      mqttConnected = true;
+
+      log('info', 'MQTT connected over TLS; waiting for fresh telemetry and retained link states.');
+
+      mqttClient.subscribe({
+        [config.sensorTopic]: { qos: 0 },
+        [config.lruTopic]: { qos: 1 },
+        [config.comTopic]: { qos: 1 },
+      }, (error, granted) => {
+        if (error) {
+          invalidateDeviceSession('MQTT subscription failed: ' + error.message);
+          return;
+        }
+
+        const refused = granted.filter((item) => item.qos === 128);
+
+        if (refused.length) {
+          invalidateDeviceSession('Broker refused one or more required telemetry subscriptions');
+        } else {
+          log('info', 'MQTT telemetry/status subscriptions acknowledged.');
+        }
+      });
+    }).catch(() => {
+      // The reset helper already logged the RTDB failure.
+      // Keep MQTT readiness false; do not subscribe to device data.
     });
   });
 
@@ -102,8 +122,10 @@ async function main() {
     invalidateDeviceSession('MQTT client error: ' + error.message);
   });
 
-  mqttClient.on('message', (topic, payload) => {
-    void telemetry.handleMessage(topic, payload).catch((error) => {
+  mqttClient.on('message', (topic, payload, packet) => {
+    void telemetry.handleMessage(topic, payload, {
+      retain: packet?.retain === true,
+    }).catch((error) => {
       log('error', 'Rejected MQTT payload on ' + topic + ': ' + error.message);
     });
   });
@@ -112,6 +134,11 @@ async function main() {
     (config.commandDispatchEnabled ? 'ENABLED' : 'DRY-RUN ONLY') + '.');
   log('info', 'Only one gateway instance is supported in this MVP.');
   log('info', 'LBS position remains UNKNOWN until independent auxiliary-contact feedback exists.');
+
+  // Recover command state before attaching the command listener.
+  // MQTT listeners are already registered, so an early connect event is not missed.
+  await processor.recoverInterruptedDispatches();
+  const detachCommandListener = processor.attach();
 
   let shuttingDown = false;
   const shutdown = async (signal) => {

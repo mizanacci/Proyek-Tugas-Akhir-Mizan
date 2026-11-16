@@ -10,12 +10,37 @@ import '../models/scada_data.dart';
 import '../services/scada_service.dart';
 import '../widgets/integration_diagnostics_panel.dart';
 
-class DataActivityScreen extends StatelessWidget {
+class DataActivityScreen extends StatefulWidget {
   const DataActivityScreen({super.key});
 
   @override
+  State<DataActivityScreen> createState() => _DataActivityScreenState();
+}
+
+class _DataActivityScreenState extends State<DataActivityScreen> {
+  ScadaService? _scadaService;
+
+  late Stream<Object?> _activityStream;
+  late Stream<List<ScadaCommand>> _commandsStream;
+
+  final Map<String, Stream<ScadaCommandResult?>> _commandResultStreams = {};
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final service = context.read<ScadaService>();
+
+    if (!identical(service, _scadaService)) {
+      _scadaService = service;
+      _activityStream = service.watchActivity();
+      _commandsStream = service.watchCommands();
+      _commandResultStreams.clear();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final scadaService = context.read<ScadaService>();
     return Scaffold(
       appBar: AppBar(title: const Text('Riwayat & Command')),
       body: DefaultTabController(
@@ -32,8 +57,8 @@ class DataActivityScreen extends StatelessWidget {
             Expanded(
               child: TabBarView(
                 children: [
-                  _activityTab(scadaService),
-                  _commandTab(scadaService),
+                  _activityTab(),
+                  _commandTab(),
                 ],
               ),
             ),
@@ -43,9 +68,9 @@ class DataActivityScreen extends StatelessWidget {
     );
   }
 
-  Widget _activityTab(ScadaService scadaService) {
+  Widget _activityTab() {
     return StreamBuilder<Object?>(
-      stream: scadaService.watchActivity(),
+      stream: _activityStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -101,9 +126,9 @@ class DataActivityScreen extends StatelessWidget {
     );
   }
 
-  Widget _commandTab(ScadaService scadaService) {
+  Widget _commandTab() {
     return StreamBuilder<List<ScadaCommand>>(
-      stream: scadaService.watchCommands(),
+      stream: _commandsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -126,7 +151,11 @@ class DataActivityScreen extends StatelessWidget {
           itemBuilder: (context, index) {
             final command = commands[index];
             return StreamBuilder<ScadaCommandResult?>(
-              stream: scadaService.watchCommandResult(command.commandId),
+              key: ValueKey(command.commandId),
+              stream: _commandResultStreams.putIfAbsent(
+                command.commandId,
+                () => _scadaService!.watchCommandResult(command.commandId),
+              ),
               builder: (context, resultSnapshot) {
                 final result = resultSnapshot.data;
                 final resultText = resultSnapshot.hasError

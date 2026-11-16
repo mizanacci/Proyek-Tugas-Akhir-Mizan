@@ -16,10 +16,16 @@ test('parses current ESP32 sensor payload', () => {
     v_beban: 229.9,
     i_sumber: 2.1,
     i_beban: 2.0,
+    suspect_i_sumber: false,
+    status_i_sumber: 'NORMAL',
+    suspect_i_beban: true,
+    status_i_beban: 'SUSPECT',
     kualitas: 0,
     ts: 123456,
   }));
   assert.equal(sensor.sourceVoltage, 230.4);
+  assert.equal(sensor.sourceCurrentStatus, 'NORMAL');
+  assert.equal(sensor.loadCurrentStatus, 'SUSPECT');
   assert.equal(sensor.deviceTimestampMs, 123456);
 });
 
@@ -137,4 +143,265 @@ test('maps actions only from explicit NO/NC configuration', () => {
   assert.equal(buildRelayPayload('OPEN', { open: 'NO', close: 'NC' }), '{"command":"NO"}');
   assert.equal(buildRelayPayload('CLOSE', { open: 'NO', close: 'NC' }), '{"command":"NC"}');
   assert.throws(() => buildRelayPayload('OPEN', { open: null, close: 'NC' }));
+});
+
+// ============================================================
+// HREG7 - PLC Operation Mode Tests
+// ============================================================
+
+function makeHreg7SensorPayload(overrides = {}) {
+  return {
+    v_sumber: 220,
+    v_beban: 219,
+    i_sumber: 0,
+    i_beban: 0,
+    kualitas: 0,
+    ts: 123456,
+    ...overrides,
+  };
+}
+
+test('HREG7 accepts all supported PLC operation modes', () => {
+  const modes = ['UNKNOWN', 'STANDBY', 'RUN', 'INVALID'];
+
+  for (const mode of modes) {
+    const sensor = parseSensorPayload(
+      makeHreg7SensorPayload({
+        mode_operasi: mode,
+        mode_operasi_valid: true,
+      }),
+    );
+
+    assert.equal(sensor.operationMode, mode);
+    assert.equal(sensor.operationModeValid, true);
+  }
+});
+
+test('HREG7 preserves backward compatibility with legacy sensor payloads', () => {
+  const sensor = parseSensorPayload(makeHreg7SensorPayload());
+
+  assert.equal(sensor.operationMode, 'UNKNOWN');
+  assert.equal(sensor.operationModeValid, false);
+});
+
+test('HREG7 rejects unsupported operation modes and non-boolean validity', () => {
+  assert.throws(
+    () => parseSensorPayload(
+      makeHreg7SensorPayload({
+        mode_operasi: 'MAINTENANCE',
+        mode_operasi_valid: true,
+      }),
+    ),
+    /mode_operasi is not recognized/,
+  );
+
+  assert.throws(
+    () => parseSensorPayload(
+      makeHreg7SensorPayload({
+        mode_operasi: 'RUN',
+        mode_operasi_valid: 'true',
+      }),
+    ),
+    /mode_operasi_valid must be boolean/,
+  );
+
+  assert.throws(
+    () => parseSensorPayload(
+      makeHreg7SensorPayload({
+        mode_operasi: 2,
+        mode_operasi_valid: true,
+      }),
+    ),
+    /mode_operasi is not recognized/,
+  );
+});
+
+test('Firebase telemetry snapshot preserves HREG7 operation mode', () => {
+  const sensor = parseSensorPayload(
+    makeHreg7SensorPayload({
+      mode_operasi: 'STANDBY',
+      mode_operasi_valid: true,
+    }),
+  );
+
+  const record = buildTelemetrySnapshot({
+    deviceId: 'LBS_01',
+    sensor,
+    lruStatus: 'NORMAL',
+    comStatus: 'NORMAL',
+    now: 2000,
+  });
+
+  assert.equal(record.mode_operasi, 'STANDBY');
+  assert.equal(record.mode_operasi_valid, true);
+  assert.equal(record.status_lbs, 'UNKNOWN');
+});
+
+test('Firebase snapshot exposes independent LRU and COM reception timestamps', () => {
+  const sensor = parseSensorPayload({
+    v_sumber: 220,
+    v_beban: 219,
+    i_sumber: 0,
+    i_beban: 0,
+    kualitas: 0,
+    ts: 500,
+  });
+
+  const record = buildTelemetrySnapshot({
+    deviceId: 'LBS_01',
+    sensor,
+    lruStatus: 'NORMAL',
+    comStatus: 'NORMAL',
+    lruReceivedAt: 900,
+    comReceivedAt: 950,
+    now: 1000,
+  });
+
+  assert.equal(record.timestamp, 1000);
+  assert.equal(record.received_at, 1000);
+  assert.equal(record.status_lru_received_at, 900);
+  assert.equal(record.status_com_received_at, 950);
+});
+
+test('parses and validates firmware voltage operating statuses', () => {
+  const base = {
+    v_sumber: 220,
+    v_beban: 219,
+    i_sumber: 0,
+    i_beban: 0,
+    kualitas: 0,
+    ts: 500,
+  };
+
+  const parseStatus = (status, flags) => parseSensorPayload({
+    ...base,
+    status_v_sumber: status,
+    suspect_v_sumber: flags.suspect,
+    warning_v_sumber: flags.warning,
+    ac_off_v_sumber: flags.acOff,
+    status_v_beban: status,
+    suspect_v_beban: flags.suspect,
+    warning_v_beban: flags.warning,
+    ac_off_v_beban: flags.acOff,
+  });
+
+  const normal = parseStatus('NORMAL', { suspect: false, warning: false, acOff: false });
+  assert.equal(normal.sourceVoltageStatus, 'NORMAL');
+  assert.equal(normal.loadVoltageStatus, 'NORMAL');
+
+  const acOff = parseStatus('NORMAL', { suspect: false, warning: false, acOff: true });
+  assert.equal(acOff.sourceVoltageStatus, 'AC_OFF');
+
+  const suspect = parseStatus('SUSPECT', { suspect: true, warning: false, acOff: false });
+  assert.equal(suspect.sourceVoltageStatus, 'SUSPECT');
+
+  const warning = parseStatus('WARNING', { suspect: false, warning: true, acOff: false });
+  assert.equal(warning.sourceVoltageStatus, 'WARNING');
+
+  const record = buildTelemetrySnapshot({
+    deviceId: 'LBS_01',
+    sensor: suspect,
+    lruStatus: 'NORMAL',
+    comStatus: 'FAIL',
+    now: 1000,
+  });
+  assert.equal(record.status_v_sumber, 'SUSPECT');
+  assert.equal(record.status_v_beban, 'SUSPECT');
+  assert.equal(record.status_lbs, 'UNKNOWN');
+});
+
+test('rejects partial or inconsistent firmware voltage status fields', () => {
+  const base = {
+    v_sumber: 220,
+    v_beban: 219,
+    i_sumber: 0,
+    i_beban: 0,
+    kualitas: 0,
+    ts: 500,
+  };
+
+  assert.throws(() => parseSensorPayload({
+    ...base,
+    status_v_sumber: 'NORMAL',
+  }), /Incomplete voltage status fields/);
+
+  assert.throws(() => parseSensorPayload({
+    ...base,
+    status_v_sumber: 'NORMAL',
+    suspect_v_sumber: true,
+    warning_v_sumber: false,
+    ac_off_v_sumber: false,
+  }), /Inconsistent voltage status flags/);
+
+  assert.throws(() => parseSensorPayload({
+    ...base,
+    status_v_sumber: 'WARNING',
+    suspect_v_sumber: false,
+    warning_v_sumber: true,
+    ac_off_v_sumber: true,
+  }), /Inconsistent voltage status flags/);
+
+  // Legacy payloads are accepted, but never silently treated as NORMAL.
+  const legacy = parseSensorPayload(base);
+  assert.equal(legacy.sourceVoltageStatus, 'UNKNOWN');
+  assert.equal(legacy.loadVoltageStatus, 'UNKNOWN');
+});
+
+test('preserves explicit current status and treats legacy status as UNKNOWN', () => {
+  const normal = parseSensorPayload({
+    v_sumber: 220,
+    v_beban: 219,
+    i_sumber: 0,
+    i_beban: 2.0,
+    suspect_i_sumber: false,
+    status_i_sumber: 'NORMAL',
+    suspect_i_beban: true,
+    status_i_beban: 'SUSPECT',
+    kualitas: 8,
+    ts: 500,
+  });
+
+  assert.equal(normal.sourceCurrentStatus, 'NORMAL');
+  assert.equal(normal.loadCurrentStatus, 'SUSPECT');
+
+  const record = buildTelemetrySnapshot({
+    deviceId: 'LBS_01',
+    sensor: normal,
+    now: 1000,
+  });
+  assert.equal(record.status_i_sumber, 'NORMAL');
+  assert.equal(record.status_i_beban, 'SUSPECT');
+
+  const legacy = parseSensorPayload({
+    v_sumber: 220,
+    v_beban: 219,
+    i_sumber: 0,
+    i_beban: 0,
+    kualitas: 0,
+    ts: 500,
+  });
+  assert.equal(legacy.sourceCurrentStatus, 'UNKNOWN');
+  assert.equal(legacy.loadCurrentStatus, 'UNKNOWN');
+});
+
+test('rejects incomplete or inconsistent current status fields', () => {
+  const base = {
+    v_sumber: 220,
+    v_beban: 219,
+    i_sumber: 0,
+    i_beban: 0,
+    kualitas: 0,
+    ts: 500,
+  };
+
+  assert.throws(() => parseSensorPayload({
+    ...base,
+    status_i_sumber: 'NORMAL',
+  }), /Incomplete current status fields/);
+
+  assert.throws(() => parseSensorPayload({
+    ...base,
+    status_i_sumber: 'NORMAL',
+    suspect_i_sumber: true,
+  }), /Inconsistent current status fields/);
 });

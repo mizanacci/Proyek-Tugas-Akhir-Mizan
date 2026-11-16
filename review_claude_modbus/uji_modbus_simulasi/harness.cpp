@@ -21,6 +21,7 @@ int main(){
     else if(c=="JUMP"){ unsigned long long t; is>>t; if(t>g_now) g_now=t; printf("OK\n"); }   // firmware 'sibuk' (tak memanggil task)
     else if(c=="NOW"){ printf("NOW %llu\n",(unsigned long long)g_now); }
     else if(c=="STATE"){ bool cf=modbusEstimasiComFailLokal(); unsigned long idle=modbusBacaRegisterCommand(); printf("STATE"); for(int i=0;i<6;i++) printf(" %u",mb.Ireg(i)); printf(" %u cmd=%lu comfail=%d\n",mb.Hreg(REG_CMD_REMOTE),idle,(int)cf); }
+    else if(c=="MODE"){ printf("MODE %u valid=%d\n",modbusBacaModeOperasiPLC(),(int)modbusModeOperasiPLCValid()); }
     else if(c=="QUIT") break;
   }
 }

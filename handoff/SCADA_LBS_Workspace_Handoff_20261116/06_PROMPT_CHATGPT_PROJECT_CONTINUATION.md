@@ -7,6 +7,7 @@ Context:
 - Branch aktif: handoff/scada-lbs-workspace-20261116
 - Base release: release/scada-lbs-internal-adc-20261116
 - Base commit: 92ec869ba368c6ee946af31c6b2860a1f25dd5d0
+- Handoff commit yang telah dipush dan diverifikasi sebelum paket arsip ini diperbarui: dd14e3ff50d0aae4a7d4e1799ea388943a8abf4d
 - Tanggal handoff: 2026-11-16
 
 Prioritas utama:
@@ -20,9 +21,10 @@ Prioritas utama:
 8. Jika file V3 yang sebenarnya belum tersedia, jelaskan statusnya secara jujur dan lanjutkan dari basis yang valid.
 9. Buat backup sebelum perubahan besar.
 10. Lakukan perubahan bertahap dan jangan menebak alamat PLC.
-11. Selalu laporkan apa yang sudah dibuktikan dan apa yang masih belum dibuktikan.
-12. Jangan melakukan force-push atau merge ke main.
-13. Tetap jujur tentang keterbatasan compile, hardware, dan program check.
+11. Jangan mengubah Flutter kecuali ada permintaan atau kebutuhan yang jelas.
+12. Selalu laporkan apa yang sudah dibuktikan dan apa yang masih belum dibuktikan.
+13. Jangan melakukan force-push atau merge ke main.
+14. Tetap jujur tentang keterbatasan compile, hardware, dan program check.
 
 Batasan kerja:
 - Jangan aktifkan relay melalui MQTT.

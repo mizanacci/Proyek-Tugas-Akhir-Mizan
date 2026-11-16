@@ -68,10 +68,11 @@ Aplikasi Flutter dibangun untuk membaca snapshot Firebase dan menampilkan status
 
 Baseline yang dipertahankan untuk handoff adalah file V3 SingleCoil yang benar-benar tersedia bukan V4. File V4 yang ada di workspace adalah instrumentasi revisi untuk simulasi internal ADC dan bukan baseline resmi.
 
-File CXT yang benar-benar ada:
+File CXT yang saat ini benar-benar ada di workspace:
 - review_claude_modbus/uji_modbus_simulasi/SCADA_CP1E_Mizan_Modbus_Revision_V4_InternalADC.cxt
 - review_claude_modbus/uji_modbus_simulasi/SCADA_CP1E_Mizan_Rev.cxt
-- C:\Users\ASUS\Downloads\SCADA_LBS_PLC_V3_2.cxt
+
+V3.2 sempat terdeteksi di Downloads pada pemeriksaan sebelumnya, tetapi file tersebut tidak lagi ditemukan saat packaging ulang. File itu tidak disalin atau dimasukkan ke ZIP.
 
 File berikut belum tersedia secara fisik:
 - SCADA_CP1E_Mizan_Modbus_Revision_V2_Minimal.cxt

@@ -4,11 +4,12 @@
 
 User baseline yang dipilih adalah V3 SingleCoil, bukan V4. V4 yang ada di workspace adalah alat simulasi dan revisi tertentu, bukan baseline resmi.
 
-## File CXT yang benar-benar ada
+## File CXT yang saat ini benar-benar ada
 
 - review_claude_modbus/uji_modbus_simulasi/SCADA_CP1E_Mizan_Modbus_Revision_V4_InternalADC.cxt
 - review_claude_modbus/uji_modbus_simulasi/SCADA_CP1E_Mizan_Rev.cxt
-- C:\Users\ASUS\Downloads\SCADA_LBS_PLC_V3_2.cxt
+
+`SCADA_LBS_PLC_V3_2.cxt` sempat terdeteksi di Downloads pada pemeriksaan terdahulu, tetapi tidak lagi ada saat pemeriksaan akhir packaging. File tersebut tidak disalin ke handoff dan tidak dimasukkan ke ZIP.
 
 ## File yang tidak tersedia secara fisik
 

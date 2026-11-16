@@ -5,6 +5,7 @@
 - Current branch: handoff/scada-lbs-workspace-20261116
 - Base branch: release/scada-lbs-internal-adc-20261116
 - Base commit: 92ec869ba368c6ee946af31c6b2860a1f25dd5d0
+- Starting handoff commit: dd14e3ff50d0aae4a7d4e1799ea388943a8abf4d
 - Date: 2026-11-16
 
 ## Folder structure
@@ -54,9 +55,14 @@ Files included in handoff archive are the project source, documentation, and saf
 - backup files containing local secrets
 - local logs and temp files
 
-## SHA-256
+## CXT files included
 
-Generate SHA-256 for the final ZIP and for the top-level handoff files. This manifest serves as the checkpoint list before archival.
+- `review_claude_modbus/uji_modbus_simulasi/SCADA_CP1E_Mizan_Rev.cxt`
+- `review_claude_modbus/uji_modbus_simulasi/SCADA_CP1E_Mizan_Modbus_Revision_V4_InternalADC.cxt`
+
+The requested V2/V3/V3.1/V3.3 files were not present in the workspace at packaging time. V3.2 was no longer present in Downloads at the final check. No replacement files were fabricated.
+
+SHA-256 values for the ZIP and primary handoff documents are recorded in the sibling `handoff/SHA256SUMS.txt` file after packaging.
 
 ## Notes
 
